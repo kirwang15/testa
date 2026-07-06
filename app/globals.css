@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #161616;
+  background: #f7f8fb;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(24, 169, 153, 0.1), transparent 28%),
+    radial-gradient(circle at right 18%, rgba(255, 200, 87, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 248, 251, 0.96)),
+    #f7f8fb;
+  color: #161616;
+  line-height: 1.5;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+@layer components {
+  .focus-ring {
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint;
+  }
+
+  .animate-feedback-pop {
+    animation: feedback-pop 420ms ease-out;
+  }
+
+  .animate-feedback-shake {
+    animation: feedback-shake 360ms ease-in-out;
+  }
+
+  .animate-cell-pop {
+    animation: cell-pop 440ms ease-out;
+  }
+
+  .animate-level-complete {
+    animation: level-complete 700ms ease-out;
+  }
+
+  .animate-hint-glow {
+    animation: hint-glow 900ms ease-out;
+  }
+
+  .animate-selected-pulse {
+    animation: selected-pulse 520ms ease-out;
+  }
+}
+
+@keyframes feedback-pop {
+  0% {
+    transform: scale(0.96);
+  }
+
+  55% {
+    transform: scale(1.025);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes feedback-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  25% {
+    transform: translateX(-6px);
+  }
+
+  50% {
+    transform: translateX(5px);
+  }
+
+  75% {
+    transform: translateX(-3px);
+  }
+}
+
+@keyframes cell-pop {
+  0% {
+    transform: scale(0.86);
+  }
+
+  60% {
+    transform: scale(1.08);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes level-complete {
+  0% {
+    transform: translateY(10px) scale(0.97);
+  }
+
+  55% {
+    transform: translateY(-3px) scale(1.015);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hint-glow {
+  0% {
+    box-shadow: 0 0 0 rgba(255, 200, 87, 0);
+  }
+
+  40% {
+    box-shadow: 0 0 0 6px rgba(255, 200, 87, 0.34);
+  }
+
+  100% {
+    box-shadow: 0 0 0 rgba(255, 200, 87, 0);
+  }
+}
+
+@keyframes selected-pulse {
+  0% {
+    transform: scale(0.94);
+  }
+
+  50% {
+    transform: scale(1.06);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

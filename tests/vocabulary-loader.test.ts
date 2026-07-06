@@ -1,0 +1,183 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import {
+  getAllBooks,
+  getAllUnits,
+  getAllWords,
+  getBookById,
+  getBookProgress,
+  getLevelsForUnit,
+  getUnitById,
+  getUnitProgress,
+  getUnitsForBook,
+  getUnitWords,
+  getWordById,
+  normalizeVocabularySources,
+  validateVocabularySources
+} from "../src/lib/vocabulary-loader";
+import { createEmptyLevelProgress } from "../src/lib/game-engine";
+import type { VocabularyImportBook } from "../types/game";
+
+describe("vocabulary loader", () => {
+  test("loads normalized books, units, and words from mock source files", () => {
+    const books = getAllBooks();
+    const units = getAllUnits();
+    const words = getAllWords();
+    const book = getBookById("nce-1");
+    const bookUnits = getUnitsForBook("nce-1");
+    const unit = getUnitById("nce-1", "nce-1-u1");
+    const unitWords = getUnitWords("nce-1", "nce-1-u1");
+    const word = getWordById("nce-1-u1-cat");
+
+    assert.equal(books.length, 4);
+    assert.equal(units.length, 8);
+    assert.equal(words.length > 0, true);
+    assert.equal(book?.title, "New Concept English Book 1");
+    assert.equal(book?.level, "A1");
+    assert.equal(book?.colorTheme, "mint");
+    assert.equal(book?.estimatedWordCount, 25);
+    assert.equal(bookUnits.length, 2);
+    assert.equal(unit?.title, "Unit 1: First Everyday Words");
+    assert.equal(unit?.difficulty, "A1");
+    assert.equal(unit?.estimatedMinutes, 12);
+    assert.equal(unitWords[0]?.displayText, unitWords[0]?.word);
+    assert.equal(word?.englishMeaning, "a small animal often kept as a pet");
+    assert.equal(word?.chineseMeaning, "猫");
+    assert.equal(unitWords.length > 0, true);
+  });
+
+  test("derives book and unit progress from completed levels", () => {
+    const progress = {
+      "1": {
+        ...createEmptyLevelProgress(),
+        foundWords: ["cat", "car", "ant", "top"],
+        completed: true
+      }
+    };
+    const wordProgress = {
+      "nce-1-u1-cat": {
+        wordId: "nce-1-u1-cat",
+        masteryLevel: 4,
+        correctCount: 2,
+        wrongCount: 0,
+        streak: 2,
+        favorite: true,
+        difficult: false
+      }
+    };
+    const bookProgress = getBookProgress("nce-1", progress, wordProgress);
+    const unitProgress = getUnitProgress("nce-1-u1", progress, wordProgress);
+
+    assert.equal(bookProgress.totalUnits, 2);
+    assert.equal(bookProgress.completedLevels, 1);
+    assert.equal(bookProgress.masteredWords, 1);
+    assert.equal(unitProgress.completedLevels, 1);
+    assert.equal(unitProgress.totalLevels, 3);
+    assert.equal(unitProgress.learnedWords, 1);
+  });
+
+  test("hydrates manual level clues from vocabulary meanings when available", () => {
+    const levels = getLevelsForUnit("nce-1", "nce-1-u2");
+    const level = levels.find((entry) => entry.id === "6");
+    const fishWord = level?.targetWords.find((word) => word.word === "FISH");
+    const fanWord = level?.targetWords.find((word) => word.word === "FAN");
+    const sunWord = level?.targetWords.find((word) => word.word === "SUN");
+
+    assert.equal(fishWord?.clue, "an animal that lives in water");
+    assert.equal(fishWord?.vocabularyWordId, "nce-1-u2-fish");
+    assert.equal(fishWord?.englishMeaning, "an animal that lives in water");
+    assert.equal(fishWord?.chineseMeaning, "鱼");
+    assert.equal(fanWord?.clue, "a device that moves air");
+    assert.equal(sunWord?.clue, "the star that gives Earth light and heat");
+  });
+
+  test("falls back from legacy meaning when englishMeaning is missing", () => {
+    const normalizedData = normalizeVocabularySources([
+      {
+        id: "legacy-book",
+        title: "Legacy Book",
+        subtitle: "Legacy",
+        level: "A1",
+        units: [
+          {
+            id: "legacy-unit",
+            title: "Legacy Unit",
+            difficulty: "A1",
+            words: [
+              {
+                id: "legacy-word",
+                word: "ticket",
+                meaning: "a paper pass for travel or entry",
+                chineseMeaning: "票"
+              }
+            ]
+          }
+        ]
+      }
+    ] satisfies VocabularyImportBook[]);
+
+    assert.equal(normalizedData.words[0]?.englishMeaning, "a paper pass for travel or entry");
+    assert.equal(normalizedData.words[0]?.chineseMeaning, "票");
+  });
+
+  test("reports duplicate ids and skips invalid or empty units safely", () => {
+    const issues = validateVocabularySources([
+      {
+        id: "demo",
+        title: "Demo Book",
+        subtitle: "Demo",
+        level: "A1",
+        units: [
+          {
+            id: "unit-a",
+            title: "Unit A",
+            difficulty: "A1",
+            estimatedMinutes: 10,
+            words: [
+              { id: "unit-a-alpha", word: "alpha" },
+              { id: "unit-a-empty", word: " " }
+            ]
+          },
+          {
+            id: "unit-a",
+            title: "Duplicate Unit",
+            difficulty: "A1",
+            estimatedMinutes: 10,
+            words: [{ id: "unit-a-beta", word: "beta" }]
+          },
+          {
+            id: "unit-b",
+            title: "Empty Unit",
+            difficulty: "A1",
+            estimatedMinutes: 10,
+            words: [{ id: "unit-b-empty", word: "   " }]
+          }
+        ]
+      },
+      {
+        id: "demo",
+        title: "Demo Book Copy",
+        subtitle: "Demo",
+        level: "A1",
+        units: []
+      }
+    ] satisfies VocabularyImportBook[]);
+
+    assert.equal(
+      issues.some((issue) => issue.type === "duplicate-book-id"),
+      true
+    );
+    assert.equal(
+      issues.some((issue) => issue.type === "duplicate-unit-id"),
+      true
+    );
+    assert.equal(
+      issues.some((issue) => issue.type === "invalid-word"),
+      true
+    );
+    assert.equal(
+      issues.some((issue) => issue.type === "empty-unit"),
+      true
+    );
+  });
+});

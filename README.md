@@ -1,0 +1,436 @@
+# Word Trail Learning Platform
+
+A beginner-friendly vocabulary learning platform built with Next.js App Router, TypeScript, Tailwind CSS, Zustand, and localStorage.
+
+The product is now **learning-first, game-second**:
+
+- vocabulary books and units provide the study structure
+- generated or hand-authored levels provide puzzle practice
+- the gameplay engine stays independent from the learning engine
+- all progress lives locally with no backend or auth
+
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Then open `http://localhost:3000`.
+
+## Useful commands
+
+```bash
+npm run typecheck
+npm run test
+npm run build
+```
+
+## Current architecture
+
+```text
+app/                  Next.js routes
+components/           Reusable UI and gameplay components
+content/              Hand-authored playable level content
+lib/                  App-facing loaders, progress, storage helpers
+src/content/          Vocabulary registry and mock book files
+src/lib/              Pure engines and learning logic
+store/                Zustand persistence layer
+tests/                Lightweight automated tests
+types/                Shared TypeScript contracts
+```
+
+## Vocabulary architecture
+
+The primary content hierarchy is:
+
+```text
+Book
+  -> Unit
+      -> Vocabulary Words
+          -> Generated Levels
+```
+
+### Runtime layers
+
+1. `src/content/vocabulary/*.mock.ts`
+   - authoring source of truth
+   - nested book -> unit -> words
+2. `src/lib/vocabulary-loader.ts`
+   - normalizes books, units, and words
+   - builds lookup maps
+   - hydrates hand-authored levels with word metadata
+3. `src/lib/level-generator.ts`
+   - turns vocabulary words into deterministic playable levels
+4. `lib/levelLoader.ts`
+   - resolves the recommended level order and UI-facing status
+
+### Vocabulary file schema
+
+```ts
+type VocabularyImportBook = {
+  id: string;
+  title: string;
+  subtitle: string;
+  description?: string;
+  level: "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+  estimatedWordCount?: number;
+  colorTheme?: "mint" | "coral" | "leaf" | "gold";
+  units: VocabularyImportUnit[];
+};
+
+type VocabularyImportUnit = {
+  id: string;
+  title: string;
+  lessonRange?: string;
+  difficulty: "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+  estimatedMinutes?: number;
+  words: VocabularyImportWord[];
+};
+
+type VocabularyImportWord = {
+  id: string;
+  word: string;
+  displayText?: string;
+  englishMeaning?: string;
+  meaning?: string;
+  chineseMeaning?: string;
+  phonetic?: string;
+  partOfSpeech?: string;
+  difficulty?: number;
+  cefrLevel?: "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+  frequencyRank?: number;
+  examples?: string[];
+  tags?: string[];
+  learningConcept?: string;
+};
+```
+
+`meaning` is kept as a legacy import field. The loader normalizes it into `englishMeaning`, so new content should prefer `englishMeaning` directly.
+
+### Meaning display behavior
+
+- word explanations default to **English**
+- tapping a meaning switches that one word between `EN` and `中文`
+- each word card keeps its own local toggle state
+- if `englishMeaning` is missing, the UI falls back to `meaning` or the gameplay clue
+- if `chineseMeaning` is missing, the UI keeps showing English
+- if both are missing, the UI shows `No explanation available`
+
+The mock files contain **placeholder / mock vocabulary only**. Do not add real textbook content unless it is properly licensed or user-owned.
+
+## Learning architecture
+
+The learning engine lives in `src/lib/learning-engine.ts`.
+
+It tracks per-word progress:
+
+- mastery level
+- correct count
+- wrong count
+- streak
+- favorite
+- difficult
+- last reviewed
+- next review
+
+Core functions:
+
+- `markWordCorrect()`
+- `markWordWrong()`
+- `updateMastery()`
+- `toggleFavoriteWord()`
+- `setWordDifficult()`
+- `getFavoriteWords()`
+- `getDifficultWords()`
+- `getMasteredWords()`
+
+### Current mastery defaults
+
+- mastery is an integer from `0` to `5`
+- a solved word increases mastery
+- a wrong review answer lowers mastery by `1`
+- using hints marks a word as difficult
+- mastered means `masteryLevel >= 4`
+
+## Review architecture
+
+The review prep layer lives in `src/lib/review-engine.ts`.
+
+It provides:
+
+- `scheduleNextReview()`
+- `getDueWords()`
+- `buildReviewQueue()`
+- `getDailyReviewList()`
+
+Current interval defaults:
+
+- mastery `0` or `1`: review next day
+- mastery `2`: review in 3 days
+- mastery `3`: review in 7 days
+- mastery `4`: review in 14 days
+- mastery `5`: review in 30 days
+
+This is intentionally simple and deterministic. It is a preparation layer for spaced repetition, not a full advanced SRS implementation yet.
+
+## Progress architecture
+
+Local progress is persisted in `localStorage` through the Zustand store.
+
+Persisted:
+
+- coins
+- current book / unit / level
+- legacy-compatible `unlockedLevelIds`
+- level progress
+- word learning progress
+- study statistics
+
+Derived at runtime:
+
+- recommended next level
+- book completion %
+- unit completion %
+- learned words
+- mastered words
+- difficult words
+- daily review queue
+
+### Study statistics
+
+The current stats model tracks:
+
+- total words learned
+- total words mastered
+- total study minutes
+- study streak
+
+Study minutes are currently calculated with a simple rule:
+
+- first completion of a level adds `unit.estimatedMinutes / levelCount`
+
+## Level generation flow
+
+The deterministic generator lives in `src/lib/level-generator.ts`.
+
+Exports:
+
+- `generateLevelsFromUnit()`
+- `generateLevelsFromBook()`
+- `generateLevelsFromVocabularySet()`
+- `generateLevelFromWords()`
+- `normalizeWord()`
+- `createLetterPool()`
+
+### Learning mode
+
+- avoids repeated normalized words
+- avoids repeated meanings close together
+- avoids repeated learning concepts close together
+- uses a default uniqueness window of `2` levels
+
+### Review mode
+
+- allows repeated words across generated review sets
+- still keeps generation deterministic
+
+### Current generator limitations
+
+- no advanced crossword construction yet
+- one target word per row in generated levels
+- no seeded random generation yet
+
+## Uniqueness system
+
+`src/lib/vocabulary-uniqueness.ts` validates and indexes:
+
+- duplicate book ids
+- duplicate unit ids
+- duplicate word ids
+- duplicate normalized words
+- duplicate Chinese meanings
+- duplicate learning concepts
+
+Conflict policy:
+
+- duplicate ids: later duplicates are ignored
+- duplicate words / meanings / concepts: issues are reported, but data still loads
+- learning-mode generation filters using the uniqueness rules
+
+## Jump system
+
+The platform supports both **structured progression** and **free exploration**.
+
+### Recommended path
+
+- registry order defines the suggested path
+- the first incomplete level in the global sequence becomes the recommendation
+- UI marks books, units, and levels as:
+  - `Completed`
+  - `Recommended`
+  - `Available`
+
+### Free play
+
+- all books, units, and levels are directly accessible
+- jumping ahead does not break progress tracking
+- entering a later level shows:
+  - `This level may contain more advanced vocabulary.`
+
+## Gameplay architecture
+
+The crossword gameplay engine stays independent in `src/lib/game-engine.ts`.
+
+It still owns:
+
+- grid building
+- word validation
+- duplicate rejection
+- level completion
+- hint reveal
+- coin spending and rewards
+
+The learning engine does **not** own gameplay rules.
+
+Current integration:
+
+- solving a target word updates word learning progress
+- using a hint marks the related word as difficult
+- free-text wrong guesses do not increment a word’s `wrongCount` in crossword mode
+
+## Word detail architecture prep
+
+The system now prepares word-detail data with:
+
+- `getWordDetailViewModel(wordId, progress)`
+
+This is enough to support a future word modal or dedicated word page showing:
+
+- word
+- phonetic
+- englishMeaning / chineseMeaning
+- examples
+- mastery
+- favorite status
+
+## AI extension prep
+
+`src/lib/ai-interfaces.ts` defines future-facing contracts for:
+
+- AI word explanations
+- AI example generation
+- AI coaching messages
+
+No AI product logic is implemented yet.
+
+## How to add a new vocabulary book
+
+1. Create a new file under `src/content/vocabulary/`
+2. Export one `VocabularyImportBook`
+3. Register it in `src/content/vocabulary/index.ts`
+
+Example:
+
+```ts
+export const ieltsCoreMock: VocabularyImportBook = {
+  id: "ielts-core",
+  title: "IELTS Core Vocabulary",
+  subtitle: "Academic Practice",
+  description: "Mock data only.",
+  level: "B2",
+  estimatedWordCount: 40,
+  colorTheme: "leaf",
+  units: []
+};
+```
+
+## How to add a new unit
+
+Inside the book file, add:
+
+```ts
+{
+  id: "ielts-core-u1",
+  title: "Unit 1: Education Topics",
+  lessonRange: "Set 1",
+  difficulty: "B2",
+  estimatedMinutes: 18,
+  words: []
+}
+```
+
+## How to add a new word list
+
+Each unit word should look like:
+
+```ts
+{
+  id: "ielts-core-u1-analyze",
+  word: "analyze",
+  displayText: "analyze",
+  englishMeaning: "to study something carefully",
+  chineseMeaning: "分析",
+  phonetic: "/ˈænəlaɪz/",
+  partOfSpeech: "verb",
+  difficulty: 2,
+  cefrLevel: "B2",
+  frequencyRank: 1200,
+  examples: ["Students analyze data in class."],
+  tags: ["academic", "education"],
+  learningConcept: "academic_analysis"
+}
+```
+
+## How to add complete New Concept vocabulary later
+
+1. Keep the same book ids:
+   - `nce-1`
+   - `nce-2`
+   - `nce-3`
+   - `nce-4`
+2. Replace or expand the mock word lists with licensed or user-owned data
+3. Keep the same schema so the loader, generator, progress system, and UI do not need to change
+
+## How to add IELTS / TOEFL / GRE / SAT later
+
+1. Add a new registered book file
+2. Choose the right `level`, `colorTheme`, and units
+3. Add word lists with `learningConcept`, `tags`, and `examples`
+4. Reuse the same generator and learning/review engines
+
+Because the book system is registry-based, new exam books are mostly a **content task**, not a gameplay-engine task.
+
+## Manual testing checklist
+
+1. Run `npm run dev`
+2. Open `/`
+3. Check:
+   - book cards render
+   - recommended content is marked
+   - favorites / difficult words / stats panels render
+4. Open `/books`
+5. Open a book and verify unit states are `Completed`, `Recommended`, or `Available`
+6. Open a unit and verify:
+   - estimated minutes
+   - vocabulary overview
+   - level cards render with `Jump ahead` when appropriate
+7. Open a level and verify:
+   - crossword gameplay still works
+   - word cards show English meanings first
+   - tapping one meaning switches only that word to Chinese
+   - hints still spend coins
+   - jump-ahead warning appears on advanced levels
+8. Complete a level and verify:
+   - coins update
+   - recommended next level moves forward
+   - study stats update
+9. Refresh the page and verify progress restores from local storage
+
+## Automated verification
+
+```bash
+npm run test
+npm run typecheck
+npm run build
+```
