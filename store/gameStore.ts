@@ -6,11 +6,15 @@ import type { StateStorage } from "zustand/middleware";
 import { createEmptyLevelProgress } from "@/lib/game";
 import {
   applyHintUsage,
+  applyPronunciationHintUsage,
+  applyConfirmedPronunciationHint,
+  applyReviewSubmission,
   applyWordSubmission,
   createInitialGameProgress,
   getSavedWordProgress,
   mergePersistedGameProgress,
-  normalizeGameProgress
+  normalizeGameProgress,
+  restartLevelAttempt
 } from "@/lib/progress";
 import { GAME_STORAGE_KEY, getPersistedGameProgress } from "@/lib/storage";
 import { toggleFavoriteWord } from "@/src/lib/learning-engine";
@@ -29,10 +33,32 @@ type GameStore = GameProgress & {
   getWordProgress: (wordId: string) => WordLearningProgress;
   normalizeProgress: () => void;
   resetProgress: () => void;
+  restartLevelAttempt: (levelId: string) => void;
   setCurrentLevel: (levelId: string) => void;
   setHasHydrated: (hasHydrated: boolean) => void;
-  submitWord: (level: Level, attempt: string) => SubmitWordResult;
-  useHint: (level: Level) => HintResult;
+  submitWord: (
+    level: Level,
+    attempt: string,
+    attemptProgress?: LevelProgress
+  ) => { result: SubmitWordResult; attemptProgress: LevelProgress };
+  useHint: (
+    level: Level,
+    attemptProgress?: LevelProgress,
+    targetWordId?: string
+  ) => { result: HintResult; attemptProgress: LevelProgress };
+  usePronunciationHint: (
+    level: Level,
+    attemptProgress?: LevelProgress,
+    targetWordId?: string
+  ) => { attemptProgress: LevelProgress };
+  submitReviewWord: (
+    wordId: string,
+    attempt: string
+  ) => "correct" | "wrong" | "unknown-word";
+  confirmPronunciationHint: (
+    levelId: string,
+    targetWordId: string
+  ) => ReturnType<typeof applyConfirmedPronunciationHint>;
   toggleFavorite: (wordId: string) => void;
 };
 
@@ -65,6 +91,9 @@ export const useGameStore = create<GameStore>()(
       resetProgress: () => {
         set(createInitialGameProgress());
       },
+      restartLevelAttempt: (levelId) => {
+        set((state) => restartLevelAttempt(state, levelId));
+      },
       setCurrentLevel: (levelId) => {
         set((state) => {
           const normalized = normalizeGameProgress({
@@ -78,14 +107,42 @@ export const useGameStore = create<GameStore>()(
       setHasHydrated: (hasHydrated) => {
         set({ hasHydrated });
       },
-      submitWord: (level, attempt) => {
-        const { nextProgress, result } = applyWordSubmission(get(), level, attempt);
+      submitWord: (level, attempt, attemptProgress) => {
+        const { nextProgress, result, attemptProgress: nextAttemptProgress } =
+          applyWordSubmission(get(), level, attempt, attemptProgress);
         set(nextProgress);
-        return result;
+        return { result, attemptProgress: nextAttemptProgress };
       },
-      useHint: (level) => {
-        const { nextProgress, result } = applyHintUsage(get(), level);
+      useHint: (level, attemptProgress, targetWordId) => {
+        const { nextProgress, result, attemptProgress: nextAttemptProgress } =
+          applyHintUsage(get(), level, attemptProgress, targetWordId);
         set(nextProgress);
+        return { result, attemptProgress: nextAttemptProgress };
+      },
+      usePronunciationHint: (level, attemptProgress, targetWordId) => {
+        const { nextProgress, attemptProgress: nextAttemptProgress } =
+          applyPronunciationHintUsage(get(), level, attemptProgress, targetWordId);
+        set(nextProgress);
+        return { attemptProgress: nextAttemptProgress };
+      },
+      submitReviewWord: (wordId, attempt) => {
+        const result = applyReviewSubmission(
+          get(),
+          wordId,
+          attempt
+        );
+        set(result.nextProgress);
+        return result.status;
+      },
+      confirmPronunciationHint: (levelId, targetWordId) => {
+        const result = applyConfirmedPronunciationHint(
+          get(),
+          levelId,
+          targetWordId
+        );
+        if (result.status === "applied") {
+          set(result.nextProgress);
+        }
         return result;
       },
       toggleFavorite: (wordId) => {

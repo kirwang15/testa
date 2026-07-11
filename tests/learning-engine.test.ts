@@ -4,12 +4,15 @@ import {
   createEmptyWordLearningProgress,
   createInitialLearningStatistics,
   getDifficultWords,
+  getDisplayableFavoriteWords,
   getFavoriteWords,
   getMasteredWords,
+  getReviewableDifficultWords,
   markWordCorrect,
   markWordWrong,
   recordStudySession,
   synchronizeLearningStatistics,
+  summarizeWordProgress,
   toggleFavoriteWord
 } from "../src/lib/learning-engine";
 
@@ -50,13 +53,44 @@ describe("learning engine", () => {
       },
       three: {
         ...createEmptyWordLearningProgress("three"),
-        masteryLevel: 4
+        masteryLevel: 4,
+        correctCount: 1
       }
     };
 
     assert.deepEqual(getFavoriteWords(progressByWordId).map((item) => item.wordId), ["one"]);
     assert.deepEqual(getDifficultWords(progressByWordId).map((item) => item.wordId), ["two"]);
     assert.deepEqual(getMasteredWords(progressByWordId).map((item) => item.wordId), ["three"]);
+  });
+
+  test("hides hint-only difficult words and unsolved legacy favorites from answer lists", () => {
+    const hintOnly = {
+      ...createEmptyWordLearningProgress("hint-only"),
+      difficult: true,
+      favorite: true
+    };
+    const answered = {
+      ...createEmptyWordLearningProgress("answered"),
+      difficult: true,
+      favorite: true,
+      wrongCount: 1,
+      reviewReasons: ["wrong" as const]
+    };
+    const solvedFavorite = {
+      ...createEmptyWordLearningProgress("solved"),
+      favorite: true,
+      correctCount: 1
+    };
+    const progress = { "hint-only": hintOnly, answered, solved: solvedFavorite };
+
+    assert.deepEqual(
+      getReviewableDifficultWords(progress).map((word) => word.wordId),
+      ["answered"]
+    );
+    assert.deepEqual(
+      getDisplayableFavoriteWords(progress).map((word) => word.wordId),
+      ["solved"]
+    );
   });
 
   test("updates learning statistics and study streak", () => {
@@ -73,11 +107,11 @@ describe("learning engine", () => {
     const syncedStats = synchronizeLearningStatistics(nextDayStats, {
       one: {
         ...createEmptyWordLearningProgress("one"),
-        correctCount: 1
+        correctCount: 1,
+        masteryLevel: 4
       },
       two: {
-        ...createEmptyWordLearningProgress("two"),
-        masteryLevel: 4
+        ...createEmptyWordLearningProgress("two")
       }
     });
     const favorite = toggleFavoriteWord(createEmptyWordLearningProgress("fav"));
@@ -87,5 +121,53 @@ describe("learning engine", () => {
     assert.equal(syncedStats.totalWordsLearned, 1);
     assert.equal(syncedStats.totalWordsMastered, 1);
     assert.equal(favorite.favorite, true);
+  });
+
+  test("does not count a wrong-only guess as a learned word", () => {
+    const syncedStats = synchronizeLearningStatistics(
+      createInitialLearningStatistics(),
+      {
+        guessed: {
+          ...createEmptyWordLearningProgress("guessed"),
+          wrongCount: 2,
+          difficult: true
+        }
+      }
+    );
+
+    assert.equal(syncedStats.totalWordsLearned, 0);
+  });
+
+  test("uses one truthful selector for learned and active review-debt metrics", () => {
+    const wrongOnly = {
+      ...createEmptyWordLearningProgress("wrong-only"),
+      masteryLevel: 5,
+      wrongCount: 2,
+      difficult: true,
+      reviewReasons: ["wrong" as const]
+    };
+    const staleDifficult = {
+      ...createEmptyWordLearningProgress("stale"),
+      difficult: true
+    };
+
+    assert.deepEqual(summarizeWordProgress([wrongOnly, staleDifficult]), {
+      learnedWords: 0,
+      masteredWords: 0,
+      difficultWords: 1
+    });
+  });
+
+  test("keeps review debt after a later level answer is correct", () => {
+    const wrong = markWordWrong(
+      createEmptyWordLearningProgress("word-1"),
+      "2026-06-22T00:00:00.000Z"
+    );
+    const laterCorrect = markWordCorrect(
+      wrong,
+      "2026-06-22T00:01:00.000Z"
+    );
+
+    assert.equal(laterCorrect.difficult, true);
   });
 });

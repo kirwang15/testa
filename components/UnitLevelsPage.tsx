@@ -8,9 +8,11 @@ import { WordMeaningToggle } from "@/components/WordMeaningToggle";
 import { createEmptyLevelProgress } from "@/lib/game";
 import {
   getLevelStatus,
+  getAllLevels,
   getUnitProgress,
   isLevelAheadOfRecommendation
 } from "@/lib/levelLoader";
+import { buildSafeVocabularyPreviews } from "@/lib/word-card-presentation";
 import { getUnitWords } from "@/src/lib/vocabulary-loader";
 import { useGameStore } from "@/store/gameStore";
 import type { Level, VocabularyBook, VocabularyUnit } from "@/types/game";
@@ -27,6 +29,11 @@ export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
   const savedWords = useGameStore((state) => state.words);
   const unitProgress = getUnitProgress(unit.id, savedLevels, savedWords);
   const unitWords = getUnitWords(book.id, unit.id);
+  const wordPreviews = buildSafeVocabularyPreviews(
+    unitWords.slice(0, 8),
+    getAllLevels(),
+    savedLevels
+  );
 
   return (
     <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
@@ -49,15 +56,20 @@ export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
                 </p>
               </div>
               <div className="grid max-w-4xl gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {unitWords.slice(0, 8).map((word) => (
+                {wordPreviews.map((word) => (
                   <div
                     key={word.id}
                     className="rounded-lg border-2 border-ink bg-paper px-3 py-3"
                   >
-                    <p className="text-sm font-black text-ink">{word.displayText}</p>
+                    <p className="text-sm font-black text-ink">{word.title}</p>
+                    {!word.safe ? (
+                      <p className="mt-1 text-xs font-bold text-ink/60">
+                        {word.length} letters · solve it to unlock
+                      </p>
+                    ) : null}
                     <WordMeaningToggle
                       className="mt-2 text-ink"
-                      wordLabel={word.displayText}
+                      wordLabel={word.wordLabel}
                       englishMeaning={word.englishMeaning}
                       chineseMeaning={word.chineseMeaning}
                     />

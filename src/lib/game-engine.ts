@@ -3,12 +3,12 @@ import type {
   Coordinate,
   GridCell,
   Level,
+  LevelAttemptProgress,
   LevelProgress,
   TargetWord
 } from "@/types/game";
 
 export const STARTING_COINS = 100;
-export const DEFAULT_HINT_COST = 25;
 
 export type GameState = {
   level: Level;
@@ -67,14 +67,7 @@ type HintGameResult =
       status: "revealed";
       cellKey: CellKey;
       letter: string;
-      cost: number;
       vocabularyWordId?: string;
-      state: GameState;
-    }
-  | {
-      action: "use-hint";
-      status: "not-enough-coins";
-      cost: number;
       state: GameState;
     }
   | {
@@ -89,9 +82,54 @@ export function createEmptyLevelProgress(): LevelProgress {
   return {
     foundWords: [],
     revealedCells: [],
+    hintedWordIds: [],
+    hintStages: {},
     completed: false,
-    hintsUsed: 0
+    hintsUsed: 0,
+    wrongAttempts: 0,
+    duplicateAttempts: 0,
+    bestStars: 0,
+    attemptCount: 0
   };
+}
+
+export function createReplayLevelProgress(progress: LevelProgress): LevelProgress {
+  const activeAttempt = progress.activeReplayAttempt;
+
+  return {
+    ...createEmptyLevelProgress(),
+    ...(activeAttempt ?? {}),
+    completedAt: progress.completedAt,
+    bestStars: progress.bestStars,
+    attemptCount: progress.attemptCount,
+    lastPlayedAt: progress.lastPlayedAt
+  };
+}
+
+export function createLevelAttemptSnapshot(
+  progress: LevelProgress
+): LevelAttemptProgress {
+  return {
+    foundWords: progress.foundWords,
+    revealedCells: progress.revealedCells,
+    hintedWordIds: progress.hintedWordIds,
+    hintStages: progress.hintStages,
+    hintsUsed: progress.hintsUsed,
+    wrongAttempts: progress.wrongAttempts,
+    duplicateAttempts: progress.duplicateAttempts
+  };
+}
+
+export function scoreLevelAttempt(progress: LevelProgress) {
+  if (!progress.completed) {
+    return 0;
+  }
+
+  return (
+    1 +
+    (progress.hintsUsed <= 1 ? 1 : 0) +
+    (progress.wrongAttempts <= 1 ? 1 : 0)
+  );
 }
 
 export function createGameState(
@@ -187,9 +225,11 @@ export function isCellVisible(cell: GridCell, progress: LevelProgress) {
   );
 }
 
-export function getNextHint(state: GameState) {
+export function getNextHint(state: GameState, targetWordId?: string) {
   const grid = buildGrid(state.level);
-  const cells = Object.values(grid).sort((a, b) => a.row - b.row || a.col - b.col);
+  const cells = Object.values(grid)
+    .filter((cell) => !targetWordId || cell.wordIds.includes(targetWordId))
+    .sort((a, b) => a.row - b.row || a.col - b.col);
   return cells.find((cell) => !isCellVisible(cell, state.progress));
 }
 
@@ -202,8 +242,7 @@ export function getCompletionReward(state: GameState) {
     };
   }
 
-  const bonusReward =
-    state.progress.hintsUsed === 0 ? state.level.perfectBonusCoins ?? 0 : 0;
+  const bonusReward = state.level.perfectBonusCoins ?? 0;
 
   return {
     baseReward: state.level.rewardCoins,
@@ -227,7 +266,13 @@ export function applyWordSubmission(
       action: "submit-word",
       status: "not-target",
       attempt,
-      state
+      state: {
+        ...state,
+        progress: {
+          ...state.progress,
+          wrongAttempts: state.progress.wrongAttempts + 1
+        }
+      }
     };
   }
 
@@ -237,7 +282,13 @@ export function applyWordSubmission(
       status: "already-found",
       attempt,
       word: targetWord,
-      state
+      state: {
+        ...state,
+        progress: {
+          ...state.progress,
+          duplicateAttempts: state.progress.duplicateAttempts + 1
+        }
+      }
     };
   }
 
@@ -266,10 +317,17 @@ export function applyWordSubmission(
   }
 
   const reward = getCompletionReward(state);
-  const completedProgress: LevelProgress = {
+  const completedAt = options?.completedAt ?? new Date().toISOString();
+  const scoredProgress: LevelProgress = {
     ...nextProgress,
     completed: true,
-    completedAt: options?.completedAt ?? new Date().toISOString()
+    completedAt,
+    attemptCount: state.progress.attemptCount + 1,
+    lastPlayedAt: completedAt
+  };
+  const completedProgress: LevelProgress = {
+    ...scoredProgress,
+    bestStars: Math.max(state.progress.bestStars, scoreLevelAttempt(scoredProgress))
   };
   const completedState: GameState = {
     ...state,
@@ -289,17 +347,8 @@ export function applyWordSubmission(
   };
 }
 
-export function applyHint(state: GameState): HintGameResult {
-  if (state.coins < state.level.hintCost) {
-    return {
-      action: "use-hint",
-      status: "not-enough-coins",
-      cost: state.level.hintCost,
-      state
-    };
-  }
-
-  const hintCell = getNextHint(state);
+export function applyHint(state: GameState, targetWordId?: string): HintGameResult {
+  const hintCell = getNextHint(state, targetWordId);
 
   if (!hintCell) {
     return {
@@ -310,20 +359,23 @@ export function applyHint(state: GameState): HintGameResult {
   }
 
   const cellKey = getCellKey(hintCell.row, hintCell.col);
+  const attributedTargetWordId = targetWordId ?? hintCell.wordIds[0];
   const nextProgress: LevelProgress = {
     ...state.progress,
     revealedCells: state.progress.revealedCells.includes(cellKey)
       ? state.progress.revealedCells
       : [...state.progress.revealedCells, cellKey],
+    hintedWordIds: state.progress.hintedWordIds.includes(attributedTargetWordId)
+      ? state.progress.hintedWordIds
+      : [...state.progress.hintedWordIds, attributedTargetWordId],
     hintsUsed: state.progress.hintsUsed + 1
   };
   const nextState: GameState = {
     ...state,
-    coins: normalizeCoins(state.coins - state.level.hintCost),
     progress: nextProgress
   };
   const relatedTargetWord = state.level.targetWords.find((word) =>
-    word.id === hintCell.wordIds[0]
+    word.id === attributedTargetWordId
   );
 
   return {
@@ -331,7 +383,6 @@ export function applyHint(state: GameState): HintGameResult {
     status: "revealed",
     cellKey,
     letter: hintCell.letter,
-    cost: state.level.hintCost,
     vocabularyWordId: relatedTargetWord?.vocabularyWordId,
     state: nextState
   };

@@ -22,5 +22,5 @@ export default async function LevelPage({ params }: LevelPageProps) {
     notFound();
   }
 
-  return <LevelGame level={level} />;
+  return <LevelGame key={level.id} level={level} />;
 }

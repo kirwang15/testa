@@ -6,37 +6,39 @@ type CrosswordGridProps = {
   progress: LevelProgress;
   recentHintCellKey?: CellKey;
   recentWordId?: string;
+  sanitizeText?: (text: string) => string;
 };
 
 export function CrosswordGrid({
   level,
   progress,
   recentHintCellKey,
-  recentWordId
+  recentWordId,
+  sanitizeText = (text) => text
 }: CrosswordGridProps) {
   const grid = buildGrid(level);
   const title = level.title ?? `Level ${level.id}`;
+  const safeTitle = sanitizeText(title);
+  const boardWidth = Math.max(132, level.grid.cols * 50);
 
   return (
-    <div
-      className="w-full max-w-[560px] rounded-lg border-2 border-ink bg-white p-3 shadow-crisp sm:p-4"
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-black uppercase text-mint">Board</p>
-          <h2 className="text-lg font-black text-ink">{title}</h2>
-        </div>
-        <p className="max-w-[190px] text-right text-xs font-bold text-ink/70">
-          Solved letters turn green. Hint reveals glow yellow.
-        </p>
+    <div className="game-board-panel w-full max-w-[640px]">
+      <div className="mb-3 flex items-center justify-between gap-3 px-1 text-amber-50">
+        <h2 className="truncate text-sm font-black uppercase tracking-[0.14em] sm:text-base">
+          {safeTitle}
+        </h2>
+        <span className="rounded-full border border-amber-100/20 bg-black/25 px-3 py-1 text-xs font-black">
+          {progress.foundWords.length}/{level.targetWords.length}
+        </span>
       </div>
 
       <div
-        className="grid gap-1 rounded-lg border-2 border-ink bg-ink p-2 sm:gap-1.5 sm:p-3"
+        className="game-crossword-grid mx-auto grid max-w-full gap-1.5 sm:gap-2"
         style={{
-          gridTemplateColumns: `repeat(${level.grid.cols}, minmax(0, 1fr))`
+          gridTemplateColumns: `repeat(${level.grid.cols}, minmax(0, 1fr))`,
+          width: `min(100%, ${boardWidth}px)`
         }}
-        aria-label={`${title} crossword grid`}
+        aria-label={sanitizeText(`${title} crossword grid`)}
       >
         {Array.from({ length: level.grid.rows }).flatMap((_, row) =>
           Array.from({ length: level.grid.cols }).map((__, col) => {
@@ -61,13 +63,13 @@ export function CrosswordGrid({
               <div
                 key={key}
                 className={[
-                  "grid aspect-square min-h-10 place-items-center rounded-md border-2 text-xl font-black transition sm:min-h-12 sm:text-2xl",
+                  "grid aspect-square min-h-8 place-items-center rounded-lg text-lg font-black transition sm:min-h-11 sm:text-2xl",
                   foundByWord
-                    ? "border-ink bg-leaf text-white"
+                    ? "game-grid-tile game-grid-tile-solved"
                     : visible
-                      ? "border-ink bg-white text-ink"
-                      : "border-white bg-paper text-transparent",
-                  hinted ? "bg-sun text-ink ring-4 ring-sun/35" : "",
+                      ? "game-grid-tile game-grid-tile-visible"
+                      : "game-grid-slot text-transparent",
+                  hinted ? "game-grid-tile-hinted" : "",
                   recentlySolved ? "animate-cell-pop" : "",
                   recentlyHinted ? "animate-hint-glow" : ""
                 ].join(" ")}

@@ -234,15 +234,16 @@ describe("level generator", () => {
     );
   });
 
-  test("loader prefers manual levels and falls back to generated levels", () => {
-    const manualUnit = getUnitById("nce-1-u1");
-    assert.ok(manualUnit, "Expected manual unit to exist");
+  test("loader resolves registered units from generated vocabulary levels", () => {
+    const registeredUnit = getUnitById("nce-1-u1");
+    assert.ok(registeredUnit, "Expected registered unit to exist");
 
-    const manualLevels = resolveLevelsForUnit(manualUnit);
+    const generatedUnitLevels = resolveLevelsForUnit(registeredUnit);
     assert.deepEqual(
-      manualLevels.map((level) => level.id),
-      ["1", "2", "3"]
+      generatedUnitLevels.map((level) => level.id),
+      ["nce-1-u1-level-1", "nce-1-u1-level-2", "nce-1-u1-level-3"]
     );
+    assert.equal(generatedUnitLevels[0]?.targetWords[0]?.vocabularyWordId, "nce-1-u1-cat");
 
     const generatedLevels = resolveLevelsForUnit(
       {

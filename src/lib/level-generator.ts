@@ -17,7 +17,6 @@ const MIN_WORD_LENGTH = 3;
 const MIN_WORDS_PER_LEVEL = 3;
 const MAX_WORDS_PER_LEVEL = 5;
 const DEFAULT_WORDS_PER_LEVEL = 4;
-const DEFAULT_HINT_COST = 25;
 const DEFAULT_UNIQUENESS_WINDOW = 2;
 
 type PreparedWord = VocabularyWord & {
@@ -34,7 +33,6 @@ export type GenerateLevelsOptions = {
   titlePrefix?: string;
   difficulty?: LevelDifficulty;
   rewardCoins?: number;
-  hintCost?: number;
   perfectBonusCoins?: number;
   uniquenessWindow?: number;
   units?: VocabularyUnit[];
@@ -287,7 +285,6 @@ export function generateLevelFromWords(
     },
     difficulty,
     rewardCoins: options.rewardCoins ?? getRewardCoins(preparedWords, difficulty),
-    hintCost: options.hintCost ?? DEFAULT_HINT_COST,
     perfectBonusCoins:
       options.perfectBonusCoins ?? getPerfectBonusCoins(difficulty),
     mode: options.mode ?? "learning"

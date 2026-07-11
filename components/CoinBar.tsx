@@ -1,9 +1,8 @@
 type CoinBarProps = {
   coins: number;
-  onReset?: () => void;
 };
 
-export function CoinBar({ coins, onReset }: CoinBarProps) {
+export function CoinBar({ coins }: CoinBarProps) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="flex min-h-12 items-center gap-3 rounded-lg border-2 border-ink bg-sun px-4 py-2 text-ink shadow-crisp">
@@ -18,15 +17,6 @@ export function CoinBar({ coins, onReset }: CoinBarProps) {
           <p className="text-lg font-black">{coins}</p>
         </div>
       </div>
-      {onReset ? (
-        <button
-          type="button"
-          onClick={onReset}
-          className="focus-ring min-h-12 rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:bg-paper"
-        >
-          Reset save
-        </button>
-      ) : null}
     </div>
   );
 }

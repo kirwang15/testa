@@ -1,10 +1,12 @@
 export {
   buildGrid,
   createEmptyLevelProgress,
-  DEFAULT_HINT_COST,
+  createLevelAttemptSnapshot,
+  createReplayLevelProgress,
   getCellKey,
   getCellsForWord,
   isCellVisible,
   normalizeWord,
+  scoreLevelAttempt,
   STARTING_COINS
 } from "../src/lib/game-engine";

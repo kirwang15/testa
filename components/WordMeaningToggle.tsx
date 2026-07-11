@@ -8,6 +8,7 @@ type WordMeaningToggleProps = {
   fallbackMeaning?: string;
   wordLabel?: string;
   className?: string;
+  sanitizeText?: (text: string) => string;
 };
 
 function normalizeMeaning(value: string | undefined) {
@@ -20,7 +21,8 @@ export function WordMeaningToggle({
   chineseMeaning,
   fallbackMeaning,
   wordLabel,
-  className
+  className,
+  sanitizeText = (text) => text
 }: WordMeaningToggleProps) {
   const [showChinese, setShowChinese] = useState(false);
   const normalizedEnglishMeaning =
@@ -35,7 +37,9 @@ export function WordMeaningToggle({
     ? showChinese
       ? normalizedChineseMeaning
       : normalizedEnglishMeaning
-    : normalizedEnglishMeaning ?? normalizedChineseMeaning ?? "No explanation available";
+    : normalizedEnglishMeaning ??
+      normalizedChineseMeaning ??
+      sanitizeText("No explanation available");
 
   const activeLanguage =
     !normalizedEnglishMeaning && normalizedChineseMeaning
@@ -53,16 +57,20 @@ export function WordMeaningToggle({
           {activeLanguage}
         </span>
         {canToggle ? (
-          <span className="text-xs font-medium opacity-70">Tap to switch language</span>
+          <span className="text-xs font-medium opacity-70">
+            {sanitizeText("Tap to switch language")}
+          </span>
         ) : null}
       </div>
       {canToggle ? (
         <button
           type="button"
-          aria-label={`${showChinese ? "Show English" : "Show Chinese"} ${buttonLabel}`}
+          aria-label={sanitizeText(
+            `${showChinese ? "Show English" : "Show Chinese"} ${buttonLabel}`
+          )}
           aria-pressed={showChinese}
           onClick={() => setShowChinese((currentValue) => !currentValue)}
-          className="focus-ring mt-2 block text-left text-sm font-semibold leading-6 text-current transition hover:opacity-80"
+          className="focus-ring mt-2 block min-h-11 rounded-lg px-2 py-2 text-left text-sm font-semibold leading-6 text-current transition hover:bg-white/10 hover:opacity-90"
         >
           {activeMeaning}
         </button>

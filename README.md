@@ -5,7 +5,7 @@ A beginner-friendly vocabulary learning platform built with Next.js App Router, 
 The product is now **learning-first, game-second**:
 
 - vocabulary books and units provide the study structure
-- generated or hand-authored levels provide puzzle practice
+- generated levels provide puzzle practice
 - the gameplay engine stays independent from the learning engine
 - all progress lives locally with no backend or auth
 
@@ -31,7 +31,6 @@ npm run build
 ```text
 app/                  Next.js routes
 components/           Reusable UI and gameplay components
-content/              Hand-authored playable level content
 lib/                  App-facing loaders, progress, storage helpers
 src/content/          Vocabulary registry and mock book files
 src/lib/              Pure engines and learning logic
@@ -59,7 +58,7 @@ Book
 2. `src/lib/vocabulary-loader.ts`
    - normalizes books, units, and words
    - builds lookup maps
-   - hydrates hand-authored levels with word metadata
+   - resolves levels from vocabulary words
 3. `src/lib/level-generator.ts`
    - turns vocabulary words into deterministic playable levels
 4. `lib/levelLoader.ts`
@@ -131,6 +130,7 @@ It tracks per-word progress:
 - streak
 - favorite
 - difficult
+- current review reasons (`wrong` and/or `clue`)
 - last reviewed
 - next review
 
@@ -138,6 +138,8 @@ Core functions:
 
 - `markWordCorrect()`
 - `markWordWrong()`
+- `markWordClueUsed()`
+- `completeWordReview()`
 - `updateMastery()`
 - `toggleFavoriteWord()`
 - `setWordDifficult()`
@@ -151,6 +153,8 @@ Core functions:
 - a solved word increases mastery
 - a wrong review answer lowers mastery by `1`
 - using hints marks a word as difficult
+- a later crossword answer does not erase an existing review reason
+- review debt is cleared only after the learner spells the item correctly in `/review`
 - mastered means `masteryLevel >= 4`
 
 ## Review architecture
@@ -172,7 +176,9 @@ Current interval defaults:
 - mastery `4`: review in 14 days
 - mastery `5`: review in 30 days
 
-This is intentionally simple and deterministic. It is a preparation layer for spaced repetition, not a full advanced SRS implementation yet.
+`/review` is an answer-safe local practice session: it shows meaning, length, and pronunciation help, accepts keyboard spelling, keeps wrong input for another try, and reveals the headword only after a correct submission. Historical correct/wrong counts remain after the current review debt is cleared.
+
+This is intentionally simple and deterministic, not a full advanced SRS implementation yet.
 
 ## Progress architecture
 
@@ -196,6 +202,10 @@ Derived at runtime:
 - mastered words
 - difficult words
 - daily review queue
+
+`totalWordsLearned` counts only words with at least one correct answer. A guessed-but-never-solved item can become review debt, but it does not inflate the learned total.
+
+Home, book, and unit summaries share the same metric selector: learned and mastered items require a correct answer, while difficult counts only active review debt. Answer-safety filtering controls whether a headword chip may be shown; it does not change these numeric totals.
 
 ### Study statistics
 
@@ -288,16 +298,28 @@ It still owns:
 - word validation
 - duplicate rejection
 - level completion
-- hint reveal
-- coin spending and rewards
+- staged hint reveal
+- completion rewards
 
 The learning engine does **not** own gameplay rules.
 
 Current integration:
 
 - solving a target word updates word learning progress
-- using a hint marks the related word as difficult
-- free-text wrong guesses do not increment a word’s `wrongCount` in crossword mode
+- pronunciation → first hidden position → later positions is persisted per target
+- hints are always available and never spend coins; they only affect stars
+- failed speech playback does not count as a hint unless a visible phonetic fallback is shown
+- speech requests settle from browser `onstart` / `onerror` events; stale callbacks from a solved word, changed route, newer request, or unmounted screen are ignored
+- using a reveal marks only the related word for review
+- a uniquely attributable near-miss increments that word’s historical `wrongCount`; ambiguous misses remain only in the level-wide error total
+- duplicate answers are tracked separately from wrong attempts
+- unit vocabulary previews use the same normalized-spelling gate as home favorites and difficult chips; unresolved entries show only a numbered locked clue, length, and sanitized meanings
+
+Review submissions accept only `wordId + attempt`. The expected spelling is resolved from the registered local vocabulary; unknown ids fail closed, so UI callers cannot inject an answer to clear review debt.
+
+## Local parent data controls
+
+Progress stays on the current device. Destructive reset is isolated under `/settings`; it requires opening the parent data section, choosing reset, and typing `ERASE` before the final button becomes available. This is an intent barrier with keyboard focus and live announcements, not account authentication or a PIN.
 
 ## Word detail architecture prep
 
@@ -419,13 +441,19 @@ Because the book system is registry-based, new exam books are mostly a **content
    - crossword gameplay still works
    - word cards show English meanings first
    - tapping one meaning switches only that word to Chinese
-   - hints still spend coins
+   - hints progress from pronunciation to letter positions without spending coins
+   - an unavailable pronunciation does not reduce the score unless a phonetic fallback is shown
    - jump-ahead warning appears on advanced levels
 8. Complete a level and verify:
    - coins update
    - recommended next level moves forward
    - study stats update
-9. Refresh the page and verify progress restores from local storage
+9. Open `/review` after a miss or clue:
+   - the unresolved answer is absent from visible text and accessible labels
+   - a wrong spelling stays available to edit
+   - a correct spelling reveals the answer and clears current review debt
+10. Refresh the page and verify progress, clue stage, and review debt restore from local storage
+11. Open `/settings` and verify reset requires the explicit `ERASE` confirmation
 
 ## Automated verification
 

@@ -1,6 +1,8 @@
-import { vocabularyLevels as manualLevels } from "../../content/levels";
 import { vocabularySources } from "../content/vocabulary";
-import { createEmptyWordLearningProgress } from "./learning-engine";
+import {
+  createEmptyWordLearningProgress,
+  summarizeWordProgress
+} from "./learning-engine";
 import {
   generateLevelsFromUnit,
   type GenerateLevelsOptions
@@ -277,10 +279,6 @@ export function normalizeVocabularySources(
   return buildVocabularyData(sources);
 }
 
-function normalizeLookupWord(word: string) {
-  return word.trim().toLowerCase();
-}
-
 function getCompletedLevelCount(
   levelIds: string[],
   progressByLevelId: Record<string, LevelProgress>
@@ -301,87 +299,12 @@ function countWordProgress(
   wordIds: string[],
   progressByWordId: Record<string, WordLearningProgress>
 ) {
-  return wordIds.reduce(
-    (summary, wordId) => {
+  return summarizeWordProgress(
+    wordIds.flatMap((wordId) => {
       const progress = progressByWordId[wordId];
-
-      if (!progress) {
-        return summary;
-      }
-
-      if (progress.correctCount > 0 || progress.wrongCount > 0) {
-        summary.learnedWords += 1;
-      }
-
-      if (progress.masteryLevel >= 4) {
-        summary.masteredWords += 1;
-      }
-
-      if (progress.difficult) {
-        summary.difficultWords += 1;
-      }
-
-      return summary;
-    },
-    {
-      learnedWords: 0,
-      masteredWords: 0,
-      difficultWords: 0
-    }
-  );
-}
-
-function findVocabularyWordByText(words: VocabularyWord[], targetWord: string) {
-  const normalizedTargetWord = normalizeLookupWord(targetWord);
-
-  return words.find((word) => normalizeLookupWord(word.word) === normalizedTargetWord);
-}
-
-function getVocabularyWordForTargetWord(unit: VocabularyUnit, targetWord: string) {
-  const unitWords = getUnitWords(unit.bookId, unit.id);
-  const unitMatch = findVocabularyWordByText(unitWords, targetWord);
-
-  if (unitMatch) {
-    return unitMatch;
-  }
-
-  const bookWords = getBookWords(unit.bookId);
-  const bookMatch = findVocabularyWordByText(bookWords, targetWord);
-
-  if (bookMatch) {
-    return bookMatch;
-  }
-
-  return findVocabularyWordByText(vocabularyData.words, targetWord);
-}
-
-function hydrateLevelFromVocabulary(unit: VocabularyUnit, level: Level): Level {
-  return {
-    ...level,
-    mode: level.mode ?? "learning",
-    targetWords: level.targetWords.map((targetWord) => {
-      const vocabularyWord = getVocabularyWordForTargetWord(unit, targetWord.word);
-      const englishMeaning =
-        vocabularyWord?.englishMeaning ?? targetWord.englishMeaning;
-      const chineseMeaning =
-        vocabularyWord?.chineseMeaning ?? targetWord.chineseMeaning;
-
-      return {
-        ...targetWord,
-        clue: englishMeaning ?? targetWord.clue,
-        englishMeaning,
-        chineseMeaning,
-        vocabularyWordId: vocabularyWord?.id,
-        learningConcept: vocabularyWord?.learningConcept
-      };
+      return progress ? [progress] : [];
     })
-  };
-}
-
-function getManualLevelsForUnit(unit: VocabularyUnit) {
-  return manualLevels
-    .filter((level) => level.bookId === unit.bookId && level.unitId === unit.id)
-    .map((level) => hydrateLevelFromVocabulary(unit, level));
+  );
 }
 
 export function validateVocabularySources(
@@ -471,12 +394,6 @@ export function resolveLevelsForUnit(
   unit: VocabularyUnit,
   options: GenerateLevelsOptions = {}
 ): Level[] {
-  const explicitLevels = getManualLevelsForUnit(unit);
-
-  if (explicitLevels.length > 0) {
-    return explicitLevels;
-  }
-
   return generateLevelsFromUnit(unit, {
     ...options,
     words: options.words ?? getUnitWords(unit.bookId, unit.id)

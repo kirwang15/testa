@@ -40,7 +40,6 @@ export type Level = {
   targetWords: TargetWord[];
   grid: GridSize;
   rewardCoins: number;
-  hintCost: number;
   perfectBonusCoins?: number;
   difficulty?: LevelDifficulty;
   mode?: VocabularyGenerationMode;
@@ -129,13 +128,26 @@ export type GridCell = {
   wordIds: string[];
 };
 
-export type LevelProgress = {
+export type LevelAttemptProgress = {
   foundWords: string[];
   revealedCells: CellKey[];
+  hintedWordIds: string[];
+  hintStages: Record<string, number>;
+  hintsUsed: number;
+  wrongAttempts: number;
+  duplicateAttempts: number;
+};
+
+export type LevelProgress = LevelAttemptProgress & {
   completed: boolean;
   completedAt?: string;
-  hintsUsed: number;
+  bestStars: number;
+  attemptCount: number;
+  lastPlayedAt?: string;
+  activeReplayAttempt?: LevelAttemptProgress;
 };
+
+export type ReviewReason = "wrong" | "clue";
 
 export type WordLearningProgress = {
   wordId: string;
@@ -145,6 +157,7 @@ export type WordLearningProgress = {
   streak: number;
   favorite: boolean;
   difficult: boolean;
+  reviewReasons?: ReviewReason[];
   lastReviewed?: string;
   nextReview?: string;
 };
@@ -244,12 +257,7 @@ export type HintResult =
       status: "revealed";
       cellKey: CellKey;
       letter: string;
-      cost: number;
       vocabularyWordId?: string;
-    }
-  | {
-      status: "not-enough-coins";
-      cost: number;
     }
   | {
       status: "no-hints-left";

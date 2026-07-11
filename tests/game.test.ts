@@ -6,16 +6,18 @@ import {
   checkLevelComplete,
   createEmptyLevelProgress,
   createGameState,
-  DEFAULT_HINT_COST,
   getCompletionReward,
   STARTING_COINS,
   getNextHint,
+  scoreLevelAttempt,
   validateWord
 } from "../src/lib/game-engine";
 import {
   getAllBooks,
+  getAllLevelIds,
   getBookById,
   getBookProgress,
+  getFirstLevel,
   getInitialUnlockedLevelIds,
   getLevelById,
   getNextLevel,
@@ -30,18 +32,48 @@ import {
 } from "../lib/levelLoader";
 import type { Level } from "../types/game";
 
-function getTestLevel(): Level {
-  const level = getLevelById("1");
-  assert.ok(level, "Expected level 1 to exist");
+function getTestLevel(levelId = "nce-1-u1-level-1"): Level {
+  const level = getLevelById(levelId);
+  assert.ok(level, `Expected level ${levelId} to exist`);
   return level;
 }
 
 describe("game engine", () => {
+  test("creates level attempts with scoring metadata", () => {
+    const progress = createEmptyLevelProgress();
+
+    assert.equal(progress.bestStars, 0);
+    assert.equal(progress.attemptCount, 0);
+    assert.equal(progress.wrongAttempts, 0);
+  });
+
+  test("scores completion, low hints, and low errors as three independent stars", () => {
+    assert.equal(
+      scoreLevelAttempt({
+        ...createEmptyLevelProgress(),
+        completed: true,
+        hintsUsed: 1,
+        wrongAttempts: 1
+      }),
+      3
+    );
+    assert.equal(
+      scoreLevelAttempt({
+        ...createEmptyLevelProgress(),
+        completed: true,
+        hintsUsed: 2,
+        wrongAttempts: 2
+      }),
+      1
+    );
+    assert.equal(scoreLevelAttempt(createEmptyLevelProgress()), 0);
+  });
+
   test("validates a correct target word", () => {
     const level = getTestLevel();
     const result = validateWord(level, " cat ");
 
-    assert.equal(result?.id, "cat");
+    assert.equal(result?.id, "nce-1-u1-cat");
     assert.equal(result?.word, "CAT");
   });
 
@@ -49,13 +81,17 @@ describe("game engine", () => {
     const level = getTestLevel();
     const state = createGameState(level, {
       ...createEmptyLevelProgress(),
-      foundWords: ["cat"]
+      foundWords: ["nce-1-u1-cat"]
     });
 
     const result = applyWordSubmission(state, "CAT");
 
     assert.equal(result.status, "already-found");
-    assert.equal(result.word.id, "cat");
+    assert.equal(result.word.id, "nce-1-u1-cat");
+    assert.deepEqual(result.state.progress, {
+      ...state.progress,
+      duplicateAttempts: 1
+    });
   });
 
   test("rejects a word that is not in the level", () => {
@@ -99,18 +135,19 @@ describe("game engine", () => {
     );
   });
 
-  test("does not award the no-hint bonus after using a hint", () => {
+  test("keeps the full completion reward after using a hint", () => {
     const level = getTestLevel();
-    const reward = getCompletionReward(
+    const withoutHint = getCompletionReward(createGameState(level));
+    const withHint = getCompletionReward(
       createGameState(level, {
         ...createEmptyLevelProgress(),
         hintsUsed: 1
       })
     );
 
-    assert.equal(reward.baseReward, level.rewardCoins);
-    assert.equal(reward.bonusReward, 0);
-    assert.equal(reward.totalReward, level.rewardCoins);
+    assert.deepEqual(withHint, withoutHint);
+    assert.equal(withHint.baseReward, level.rewardCoins);
+    assert.equal(withHint.bonusReward, level.perfectBonusCoins ?? 0);
   });
 
   test("reveals the next hidden hint cell", () => {
@@ -123,31 +160,81 @@ describe("game engine", () => {
     const firstHint = applyHint(state);
 
     assert.equal(firstHint.status, "revealed");
-    assert.equal(firstHint.cellKey, "2:0");
+    assert.equal(firstHint.cellKey, "0:0");
     assert.equal(firstHint.letter, "C");
-    assert.equal(firstHint.cost, level.hintCost);
 
     const secondHint = applyHint(firstHint.state);
 
     assert.equal(secondHint.status, "revealed");
     if (firstHint.status === "revealed" && secondHint.status === "revealed") {
-      assert.equal(secondHint.state.coins, STARTING_COINS - DEFAULT_HINT_COST * 2);
+      assert.equal(secondHint.state.coins, STARTING_COINS);
       assert.notEqual(secondHint.cellKey, firstHint.cellKey);
     }
   });
 
-  test("blocks hints when coins are too low", () => {
+  test("keeps hints available when the player has no coins", () => {
     const level = getTestLevel();
     const result = applyHint(
-      createGameState(level, createEmptyLevelProgress(), level.hintCost - 1)
+      createGameState(level, createEmptyLevelProgress(), 0)
     );
 
-    assert.deepEqual(result, {
-      action: "use-hint",
-      status: "not-enough-coins",
-      cost: level.hintCost,
-      state: createGameState(level, createEmptyLevelProgress(), level.hintCost - 1)
-    });
+    assert.equal(result.status, "revealed");
+    assert.equal(result.state.coins, 0);
+    assert.equal(result.state.progress.hintsUsed, 1);
+  });
+
+  test("reveals the first hidden letter for the requested clue", () => {
+    const level = getTestLevel();
+    const requestedWord = level.targetWords[1];
+    assert.ok(requestedWord);
+    const result = applyHint(createGameState(level), requestedWord.id);
+
+    assert.equal(result.status, "revealed");
+    assert.equal(result.cellKey, `${requestedWord.start.row}:${requestedWord.start.col}`);
+    assert.equal(result.letter, requestedWord.word[0]);
+  });
+
+  test("attributes an intersecting hint to the explicitly requested word", () => {
+    const crossingLevel: Level = {
+      ...getTestLevel(),
+      id: "crossing-hint",
+      letters: ["C", "A", "T", "R"],
+      grid: { rows: 3, cols: 3 },
+      targetWords: [
+        {
+          id: "cat",
+          word: "CAT",
+          clue: "animal",
+          start: { row: 0, col: 0 },
+          direction: "across",
+          vocabularyWordId: "v-cat"
+        },
+        {
+          id: "car",
+          word: "CAR",
+          clue: "vehicle",
+          start: { row: 0, col: 0 },
+          direction: "down",
+          vocabularyWordId: "v-car"
+        }
+      ]
+    };
+
+    const result = applyHint(createGameState(crossingLevel), "car");
+
+    assert.equal(result.status, "revealed");
+    if (result.status === "revealed") {
+      assert.equal(result.vocabularyWordId, "v-car");
+    }
+  });
+
+  test("exposes no paid-hint cost contract", () => {
+    const result = applyHint(createGameState(getTestLevel()));
+
+    assert.equal(result.status, "revealed");
+    if (result.status === "revealed") {
+      assert.equal("cost" in result, false);
+    }
   });
 
   test("returns no hint when all cells are already visible", () => {
@@ -169,16 +256,18 @@ describe("game engine", () => {
     const unit = getUnitById("nce-1-u1");
     const bookUnits = getUnitsByBookId("nce-1");
     const unitLevels = getLevelsByUnitId("nce-1-u1");
-    const nextLevel = getNextLevel("1");
+    const firstLevel = getFirstLevel();
+    const firstLevelId = firstLevel?.id ?? "";
+    const nextLevel = getNextLevel(firstLevelId);
     const bookProgress = getBookProgress("nce-1", {
-      "1": {
+      [firstLevelId]: {
         ...createEmptyLevelProgress(),
         foundWords: unitLevels[0]?.targetWords.map((word) => word.id) ?? [],
         completed: true
       }
     });
     const unitProgress = getUnitProgress("nce-1-u1", {
-      "1": {
+      [firstLevelId]: {
         ...createEmptyLevelProgress(),
         foundWords: unitLevels[0]?.targetWords.map((word) => word.id) ?? [],
         completed: true
@@ -188,12 +277,15 @@ describe("game engine", () => {
     assert.equal(books.length, 4);
     assert.equal(book?.id, "nce-1");
     assert.equal(unit?.id, "nce-1-u1");
-    assert.equal(levelExists("1"), true);
+    assert.equal(firstLevelId, "nce-1-u1-level-1");
+    assert.equal(levelExists(firstLevelId), true);
+    assert.equal(levelExists("1"), false);
+    assert.equal(getLevelById("1"), undefined);
     assert.equal(levelExists("missing"), false);
     assert.equal(getLevelById("missing"), undefined);
     assert.equal(bookUnits.length, 2);
     assert.equal(unitLevels.length, 3);
-    assert.equal(nextLevel?.id, "2");
+    assert.equal(nextLevel?.id, "nce-1-u1-level-2");
     assert.equal(getNextLevel("missing"), undefined);
     assert.equal(bookProgress.totalLevels, 6);
     assert.equal(bookProgress.completedLevels, 1);
@@ -204,14 +296,15 @@ describe("game engine", () => {
   test("derives the recommended flow from completed levels", () => {
     const unitLevels = getLevelsByUnitId("nce-1-u1");
     const levelOne = unitLevels[0];
-    assert.ok(levelOne, "Expected level 1 to exist");
+    assert.ok(levelOne, "Expected first level to exist");
 
     const initialUnlockedLevelIds = getInitialUnlockedLevelIds();
     assert.equal(initialUnlockedLevelIds.length > 1, true);
-    assert.equal(getNextUnlockedLevel({}, initialUnlockedLevelIds)?.id, "1");
+    assert.deepEqual(initialUnlockedLevelIds, getAllLevelIds());
+    assert.equal(getNextUnlockedLevel({}, initialUnlockedLevelIds)?.id, "nce-1-u1-level-1");
 
     const progress = {
-      "1": {
+      [levelOne.id]: {
         ...createEmptyLevelProgress(),
         foundWords: levelOne.targetWords.map((word) => word.id),
         completed: true
@@ -221,7 +314,7 @@ describe("game engine", () => {
     const summary = getProgressSummary(progress);
 
     assert.equal(unlockedAfterLevelOne.length, initialUnlockedLevelIds.length);
-    assert.equal(getNextUnlockedLevel(progress, unlockedAfterLevelOne)?.id, "2");
+    assert.equal(getNextUnlockedLevel(progress, unlockedAfterLevelOne)?.id, "nce-1-u1-level-2");
     assert.equal(summary.completedLevels, 1);
     assert.equal(summary.completionRate, 4);
   });

@@ -1,46 +1,54 @@
+import { Check, Delete, RotateCcw, X } from "lucide-react";
+
 type LetterWheelProps = {
   letters: string[];
   selectedIndexes: number[];
+  currentWord: string;
   disabled?: boolean;
+  isSubmitting?: boolean;
   onBackspace: () => void;
   onChoose: (index: number) => void;
+  onClear: () => void;
+  onSubmit: () => void;
+  sanitizeText?: (text: string) => string;
 };
 
 export function LetterWheel({
   letters,
   selectedIndexes,
+  currentWord,
   disabled = false,
+  isSubmitting = false,
   onBackspace,
-  onChoose
+  onChoose,
+  onClear,
+  onSubmit,
+  sanitizeText = (text) => text
 }: LetterWheelProps) {
-  const radius = letters.length > 5 ? 96 : 88;
+  const radius = letters.length > 5 ? 66 : 58;
   const selectedCount = selectedIndexes.length;
+  const selectedLetters = currentWord.split("");
+  const canEdit = !disabled && !isSubmitting && selectedCount > 0;
+  const canSubmit = canEdit && currentWord.length > 0;
 
   return (
-    <div className="rounded-lg border-2 border-ink bg-white p-4 shadow-crisp sm:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-black uppercase text-coral">Letters</p>
-          <p className="text-sm font-bold text-ink/70">Use each tile once per word.</p>
+    <div className="relative mx-auto w-full max-w-[320px]">
+      {selectedLetters.length > 0 ? (
+        <div className="game-word-ribbon absolute left-1/2 top-[-3.1rem] z-20 min-h-11 w-[min(100%,300px)] -translate-x-1/2">
+          {selectedLetters.map((letter, index) => (
+            <span
+              key={`${letter}-${index}`}
+              className="game-ribbon-letter animate-selected-pulse"
+            >
+              {letter}
+            </span>
+          ))}
         </div>
-        <span className="rounded-lg border-2 border-ink bg-paper px-3 py-1 text-sm font-black text-ink">
-          {selectedCount}/{letters.length}
-        </span>
-      </div>
+      ) : null}
 
-      <div className="relative mx-auto mt-4 h-72 w-72 max-w-full">
-        <div
-          className={[
-            "absolute left-1/2 top-1/2 grid h-24 w-24 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-lg border-2 border-ink bg-paper px-2 text-center font-black text-ink",
-            disabled ? "opacity-60" : ""
-          ].join(" ")}
-        >
-          <div>
-            <p className="text-sm">{disabled ? "Level clear" : selectedCount > 0 ? `${selectedCount} picked` : "Tap in order"}</p>
-            <p className="mt-1 text-[11px] font-bold text-ink/70">
-              {disabled ? "Great work." : "Build from the wheel."}
-            </p>
-          </div>
+      <div className="game-wheel-shell relative mx-auto h-[200px] w-[200px] max-w-full sm:h-[212px] sm:w-[212px]">
+        <div className="game-wheel-core">
+          <span>{disabled ? sanitizeText("Clear") : `${selectedCount}/${letters.length}`}</span>
         </div>
         {letters.map((letter, index) => {
           const angle = (Math.PI * 2 * index) / letters.length - Math.PI / 2;
@@ -56,10 +64,10 @@ export function LetterWheel({
               onClick={() => onChoose(index)}
               disabled={disabled || selected}
               className={[
-                "focus-ring absolute left-1/2 top-1/2 grid h-14 w-14 place-items-center rounded-lg border-2 border-ink text-xl font-black transition disabled:cursor-not-allowed disabled:opacity-70 sm:h-16 sm:w-16 sm:text-2xl",
+                "game-letter-button focus-ring absolute left-1/2 top-1/2 grid h-11 w-11 place-items-center text-xl font-black transition disabled:cursor-not-allowed disabled:opacity-75 sm:h-12 sm:w-12 sm:text-2xl",
                 selected
-                  ? "z-10 scale-105 bg-mint text-white shadow-crisp ring-4 ring-mint/20"
-                  : "bg-sun text-ink hover:-translate-y-1 hover:bg-white"
+                  ? "z-10 scale-105 text-white ring-4 ring-amber-100/25"
+                  : "text-[#210d06] hover:brightness-110"
               ].join(" ")}
               style={{
                 transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
@@ -67,7 +75,7 @@ export function LetterWheel({
             >
               <span>{letter}</span>
               {selected ? (
-                <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full border-2 border-ink bg-white text-xs font-black text-mint">
+                <span className="absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full border border-amber-100/60 bg-[#1d0b05] text-xs font-black text-amber-100">
                   {selectionOrder}
                 </span>
               ) : null}
@@ -76,14 +84,39 @@ export function LetterWheel({
         })}
       </div>
 
-      <button
-        type="button"
-        onClick={onBackspace}
-        disabled={disabled || selectedIndexes.length === 0}
-        className="focus-ring mt-4 min-h-12 w-full rounded-lg border-2 border-ink bg-white px-4 py-3 font-black text-ink transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-paper disabled:text-ink/50 disabled:opacity-70"
-      >
-        Backspace
-      </button>
+      <div className="game-wheel-actions">
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={!canEdit}
+          className="game-wheel-action focus-ring"
+          aria-label={sanitizeText("Clear selected letters")}
+        >
+          <X className="h-5 w-5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={onBackspace}
+          disabled={!canEdit}
+          className="game-wheel-action focus-ring"
+          aria-label={sanitizeText("Remove last letter")}
+        >
+          <Delete className="h-5 w-5" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!canSubmit}
+          className="game-wheel-action game-wheel-action-submit focus-ring"
+          aria-label={sanitizeText("Submit current word")}
+        >
+          {isSubmitting ? (
+            <RotateCcw className="h-5 w-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Check className="h-5 w-5" aria-hidden="true" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }

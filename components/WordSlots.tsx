@@ -1,4 +1,9 @@
+import { Bookmark, CheckCircle2 } from "lucide-react";
 import { getCellsForWord, getCellKey } from "@/lib/game";
+import {
+  getWordCardPresentation,
+  sanitizeLevelPresentationText
+} from "@/lib/word-card-presentation";
 import { WordMeaningToggle } from "@/components/WordMeaningToggle";
 import type { Level, LevelProgress, WordLearningProgress } from "@/types/game";
 
@@ -6,104 +11,165 @@ type WordSlotsProps = {
   level: Level;
   progress: LevelProgress;
   recentWordId?: string;
+  hintTargetId?: string;
+  hintTargetLabel?: string;
   wordProgressById?: Record<string, WordLearningProgress>;
   onToggleFavorite?: (wordId: string) => void;
+  meaningDisplay?: "toggle" | "bilingual";
 };
 
 export function WordSlots({
   level,
   progress,
   recentWordId,
+  hintTargetId,
+  hintTargetLabel,
   wordProgressById = {},
-  onToggleFavorite
+  onToggleFavorite,
+  meaningDisplay = "toggle"
 }: WordSlotsProps) {
   const solvedCount = progress.completed ? level.targetWords.length : progress.foundWords.length;
+  const isBilingualView = meaningDisplay === "bilingual";
+  const safeText = (text: string) =>
+    sanitizeLevelPresentationText(level, progress, text) ?? "";
 
   return (
-    <div className="rounded-lg border-2 border-ink bg-white p-4 shadow-crisp sm:p-5">
+    <div className="rounded-[1.25rem] border border-amber-100/15 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-4">
       <div className="flex items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-black uppercase text-coral">Words</p>
-          <h2 className="text-2xl font-black text-ink">Find every word</h2>
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-200/75">
+            {safeText(isBilingualView ? "Vocabulary" : "Progress")}
+          </p>
+          <h2 className="text-xl font-black text-white">
+            {safeText(isBilingualView ? "Word meanings" : "Find every word")}
+          </h2>
         </div>
-        <p className="text-sm font-bold text-ink/70">
-          {solvedCount}/{level.targetWords.length} solved
+        <p className="rounded-full border border-amber-100/20 bg-black/30 px-3 py-1 text-sm font-black text-amber-50">
+          {solvedCount}/{level.targetWords.length} {safeText("solved")}
         </p>
       </div>
 
       <div className="mt-4 space-y-3">
-        {level.targetWords.map((word) => {
-          const found = progress.foundWords.includes(word.id) || progress.completed;
+        {level.targetWords.map((word, wordIndex) => {
           const recentlyFound = recentWordId === word.id;
+          const isHintTarget = hintTargetId === word.id;
           const cells = getCellsForWord(word);
           const wordProgress = word.vocabularyWordId
             ? wordProgressById[word.vocabularyWordId]
             : undefined;
+          const vocabularyWordId = word.vocabularyWordId;
           const isFavorite = wordProgress?.favorite === true;
+          const presentation = getWordCardPresentation(level, word, progress, isFavorite);
+          const found = presentation.solved;
 
           return (
             <div
               key={word.id}
               className={[
-                "rounded-lg border-2 p-3 shadow-sm transition",
-                found ? "border-ink bg-leaf text-white" : "border-ink bg-white text-ink",
-                recentlyFound ? "animate-feedback-pop ring-4 ring-sun/25" : ""
+                "rounded-2xl border p-3 shadow-sm transition",
+                found
+                  ? "border-emerald-200/30 bg-emerald-700/65 text-white"
+                  : "border-amber-100/15 bg-[#2a1409]/80 text-amber-50",
+                recentlyFound ? "animate-feedback-pop ring-4 ring-amber-200/20" : "",
+                isHintTarget && !found ? "ring-4 ring-sky-300/45" : ""
               ].join(" ")}
             >
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-xs font-black uppercase">
-                  {found ? "Solved" : `${word.word.length} letters`}
-                </p>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.12em] opacity-80">
+                    {found
+                      ? safeText("Solved")
+                      : isHintTarget
+                        ? safeText(hintTargetLabel ?? `Clue ${wordIndex + 1}`)
+                        : safeText(`Clue ${wordIndex + 1}`)}
+                  </p>
+                  {!found ? (
+                    <p className="mt-1 text-xs font-bold opacity-75">
+                      {word.word.length} {safeText("letters")}
+                    </p>
+                  ) : null}
+                  {isBilingualView ? (
+                    <p className="mt-1 text-base font-black tracking-[0.08em] text-white/95">
+                      {presentation.wordText}
+                    </p>
+                  ) : null}
+                </div>
                 <div className="flex items-center gap-2">
-                  {word.vocabularyWordId ? (
+                  {vocabularyWordId && found ? (
                     <button
                       type="button"
-                      onClick={() => onToggleFavorite?.(word.vocabularyWordId!)}
-                      className="focus-ring rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-black text-ink transition hover:-translate-y-0.5"
+                      onClick={() => onToggleFavorite?.(vocabularyWordId)}
+                      className="focus-ring grid h-11 w-11 place-items-center rounded-full border border-amber-100/25 bg-white/90 text-[#301006] transition hover:-translate-y-0.5"
+                      aria-label={presentation.favoriteActionLabel}
                     >
-                      {isFavorite ? "Saved" : "Save"}
+                      <Bookmark
+                        className={["h-4 w-4", isFavorite ? "fill-current" : ""].join(" ")}
+                        aria-hidden="true"
+                      />
                     </button>
                   ) : null}
                   {found ? (
-                    <span className="rounded-lg border-2 border-ink bg-white px-2 py-1 text-xs font-black text-leaf">
-                      Filled
+                    <span className="grid h-8 w-8 place-items-center rounded-full border border-emerald-100/40 bg-white/90 text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                     </span>
                   ) : null}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {word.word.split("").map((letter, index) => {
+                {presentation.letterTexts.map((letter, index) => {
                   const cell = cells[index];
                   const key = getCellKey(cell.row, cell.col);
-                  const visible = found || progress.revealedCells.includes(key);
+                  const visible = letter !== "_";
                   const hinted = progress.revealedCells.includes(key) && !found;
 
                   return (
                     <span
                       key={`${word.id}-${index}`}
                       className={[
-                        "grid h-9 w-9 place-items-center rounded-md border-2 border-ink text-sm font-black sm:h-10 sm:w-10",
+                        "grid h-9 w-9 place-items-center rounded-lg border text-sm font-black shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] sm:h-10 sm:w-10",
                         found
-                          ? "bg-white text-leaf"
+                          ? "border-emerald-900/30 bg-white text-emerald-700"
                           : hinted
-                            ? "bg-sun text-ink ring-2 ring-sun/35"
+                            ? "border-amber-900/30 bg-amber-300 text-[#210d06] ring-2 ring-amber-200/30"
                             : visible
-                              ? "bg-paper text-ink"
-                              : "bg-white text-transparent"
+                              ? "border-amber-900/30 bg-white text-[#210d06]"
+                              : "border-black/30 bg-black/35 text-transparent"
                       ].join(" ")}
                     >
-                      {visible ? letter : "_"}
+                      {letter}
                     </span>
                   );
                 })}
               </div>
-              <WordMeaningToggle
-                className="mt-3"
-                wordLabel={word.word}
-                englishMeaning={word.englishMeaning}
-                chineseMeaning={word.chineseMeaning}
-                fallbackMeaning={word.clue}
-              />
+              {meaningDisplay === "bilingual" ? (
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="rounded-xl border border-current/15 bg-black/10 px-3 py-2">
+                    <p className="text-[11px] font-black uppercase tracking-[0.12em] opacity-70">
+                      {safeText("English")}
+                    </p>
+                    <p className="mt-1 font-semibold leading-6">
+                      {presentation.englishMeaning ?? safeText("No explanation available")}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-current/15 bg-black/10 px-3 py-2">
+                    <p className="text-[11px] font-black uppercase tracking-[0.12em] opacity-70">
+                      中文
+                    </p>
+                    <p className="mt-1 font-semibold leading-6">
+                      {presentation.chineseMeaning ?? "暂无中文解释"}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <WordMeaningToggle
+                  className="mt-3"
+                  wordLabel={presentation.wordText}
+                  englishMeaning={presentation.englishMeaning}
+                  chineseMeaning={presentation.chineseMeaning}
+                  fallbackMeaning={presentation.englishMeaning}
+                  sanitizeText={safeText}
+                />
+              )}
             </div>
           );
         })}

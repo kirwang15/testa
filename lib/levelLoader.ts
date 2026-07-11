@@ -1,4 +1,3 @@
-import { vocabularyLevels as manualLevels } from "../content/levels";
 import {
   getAllBooks as getAllRegisteredBooks,
   getAllUnits as getAllRegisteredUnits,
@@ -34,11 +33,6 @@ export type ProgressStatus = "completed" | "recommended" | "available";
 const books = getAllRegisteredBooks();
 const units = getAllRegisteredUnits();
 const primaryLevels: Level[] = getResolvedLevels({ mode: "learning" });
-const primaryLevelIdSet = new Set(primaryLevels.map((level) => level.id));
-const addressableLevels: Level[] = [
-  ...primaryLevels,
-  ...manualLevels.filter((level) => !primaryLevelIdSet.has(level.id))
-];
 
 export function getAllBooks() {
   return books;
@@ -73,7 +67,7 @@ export function getUnitById(unitId: string) {
 }
 
 export function getLevelById(levelId: string) {
-  return addressableLevels.find((level) => level.id === levelId);
+  return primaryLevels.find((level) => level.id === levelId);
 }
 
 export function levelExists(levelId: string) {

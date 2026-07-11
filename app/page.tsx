@@ -10,6 +10,7 @@ import { createEmptyLevelProgress } from "@/lib/game";
 import {
   getBookProgress,
   getBookStatus,
+  getAllLevels,
   getLevelsByUnitId,
   getLevelStatus,
   getProgressSummary,
@@ -19,23 +20,33 @@ import {
   getUnitsByBookId,
   isLevelAheadOfRecommendation
 } from "@/lib/levelLoader";
-import { getDifficultWords, getFavoriteWords } from "@/src/lib/learning-engine";
+import {
+  getDisplayableFavoriteWords,
+  getReviewableDifficultWords
+} from "@/src/lib/learning-engine";
 import { getAllBooks, getWordById } from "@/src/lib/vocabulary-loader";
 import { useGameStore } from "@/store/gameStore";
+import { isVocabularyAnswerSafeToDisplay } from "@/lib/word-card-presentation";
 
 export default function HomePage() {
   const coins = useGameStore((state) => state.coins);
   const savedLevels = useGameStore((state) => state.levels);
   const savedWords = useGameStore((state) => state.words);
   const studyStats = useGameStore((state) => state.studyStats);
-  const resetProgress = useGameStore((state) => state.resetProgress);
   const books = getAllBooks();
   const progressSummary = getProgressSummary(savedLevels);
   const recommendedLevel = getRecommendedLevel(savedLevels);
-  const difficultWords = getDifficultWords(savedWords)
+  const allLevels = getAllLevels();
+  const difficultWords = getReviewableDifficultWords(savedWords)
+    .filter((progress) =>
+      isVocabularyAnswerSafeToDisplay(progress.wordId, allLevels, savedLevels)
+    )
     .map((progress) => getWordById(progress.wordId))
     .filter((word): word is NonNullable<ReturnType<typeof getWordById>> => Boolean(word));
-  const favoriteWords = getFavoriteWords(savedWords)
+  const favoriteWords = getDisplayableFavoriteWords(savedWords)
+    .filter((progress) =>
+      isVocabularyAnswerSafeToDisplay(progress.wordId, allLevels, savedLevels)
+    )
     .map((progress) => getWordById(progress.wordId))
     .filter((word): word is NonNullable<ReturnType<typeof getWordById>> => Boolean(word));
 
@@ -94,7 +105,15 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
-            <CoinBar coins={coins} onReset={resetProgress} />
+            <div className="flex flex-wrap items-center gap-3">
+              <CoinBar coins={coins} />
+              <Link
+                href="/settings"
+                className="focus-ring inline-flex min-h-12 items-center rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink transition hover:-translate-y-0.5 hover:bg-paper"
+              >
+                Settings
+              </Link>
+            </div>
           </div>
         </header>
 
@@ -110,7 +129,7 @@ export default function HomePage() {
                 : "You completed the current recommended path."}
             </p>
           </div>
-          <div className="rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
+          <div id="difficult-words" className="scroll-mt-6 rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
             <p className="text-sm font-black uppercase text-coral">Review Difficult Words</p>
             <div className="mt-3 flex flex-wrap gap-2">
               {difficultWords.slice(0, 5).map((word) => (

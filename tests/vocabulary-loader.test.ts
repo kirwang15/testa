@@ -47,10 +47,14 @@ describe("vocabulary loader", () => {
   });
 
   test("derives book and unit progress from completed levels", () => {
+    const unitLevels = getLevelsForUnit("nce-1", "nce-1-u1");
+    const firstLevel = unitLevels[0];
+    assert.ok(firstLevel, "Expected nce-1-u1 to have a generated level");
+
     const progress = {
-      "1": {
+      [firstLevel.id]: {
         ...createEmptyLevelProgress(),
-        foundWords: ["cat", "car", "ant", "top"],
+        foundWords: firstLevel.targetWords.map((word) => word.id),
         completed: true
       }
     };
@@ -76,19 +80,49 @@ describe("vocabulary loader", () => {
     assert.equal(unitProgress.learnedWords, 1);
   });
 
-  test("hydrates manual level clues from vocabulary meanings when available", () => {
-    const levels = getLevelsForUnit("nce-1", "nce-1-u2");
-    const level = levels.find((entry) => entry.id === "6");
-    const fishWord = level?.targetWords.find((word) => word.word === "FISH");
-    const fanWord = level?.targetWords.find((word) => word.word === "FAN");
-    const sunWord = level?.targetWords.find((word) => word.word === "SUN");
+  test("keeps wrong-only words out of book and unit learned metrics", () => {
+    const wrongOnly = {
+      "nce-1-u1-cat": {
+        wordId: "nce-1-u1-cat",
+        masteryLevel: 0,
+        correctCount: 0,
+        wrongCount: 2,
+        streak: 0,
+        favorite: false,
+        difficult: true,
+        reviewReasons: ["wrong" as const]
+      }
+    };
 
+    const bookProgress = getBookProgress("nce-1", {}, wrongOnly);
+    const unitProgress = getUnitProgress("nce-1-u1", {}, wrongOnly);
+
+    assert.equal(bookProgress.learnedWords, 0);
+    assert.equal(unitProgress.learnedWords, 0);
+    assert.equal(bookProgress.difficultWords, 1);
+    assert.equal(unitProgress.difficultWords, 1);
+  });
+
+  test("generates level clues from vocabulary meanings when available", () => {
+    const levels = getLevelsForUnit("nce-1", "nce-1-u2");
+    const fishWord = levels
+      .flatMap((level) => level.targetWords)
+      .find((word) => word.word === "FISH");
+    const fanWord = levels
+      .flatMap((level) => level.targetWords)
+      .find((word) => word.word === "FAN");
+    const bookWord = levels[0]?.targetWords.find((word) => word.word === "BOOK");
+
+    assert.deepEqual(
+      levels.map((level) => level.id),
+      ["nce-1-u2-level-1", "nce-1-u2-level-2", "nce-1-u2-level-3"]
+    );
     assert.equal(fishWord?.clue, "an animal that lives in water");
     assert.equal(fishWord?.vocabularyWordId, "nce-1-u2-fish");
     assert.equal(fishWord?.englishMeaning, "an animal that lives in water");
     assert.equal(fishWord?.chineseMeaning, "鱼");
     assert.equal(fanWord?.clue, "a device that moves air");
-    assert.equal(sunWord?.clue, "the star that gives Earth light and heat");
+    assert.equal(bookWord?.clue, "a set of written or printed pages");
   });
 
   test("falls back from legacy meaning when englishMeaning is missing", () => {
