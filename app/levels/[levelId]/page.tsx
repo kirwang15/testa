@@ -1,6 +1,12 @@
 import { LevelGame } from "@/components/LevelGame";
-import { getAllLevels, getLevelById } from "@/lib/levelLoader";
+import {
+  curriculumContentVersion,
+  getAllLevels,
+  isLegacyLevelRoute,
+  levelExists
+} from "@/lib/curriculum-index";
 import { notFound } from "next/navigation";
+import type { LevelRoutePayload } from "@/types/game";
 
 type LevelPageProps = {
   params: Promise<{
@@ -16,11 +22,15 @@ export function generateStaticParams() {
 
 export default async function LevelPage({ params }: LevelPageProps) {
   const { levelId } = await params;
-  const level = getLevelById(levelId);
 
-  if (!level) {
+  if (!levelExists(levelId) && !isLegacyLevelRoute(levelId)) {
     notFound();
   }
 
-  return <LevelGame key={level.id} level={level} />;
+  const payload = {
+    levelId,
+    contentVersion: curriculumContentVersion
+  } satisfies LevelRoutePayload;
+
+  return <LevelGame key={levelId} {...payload} />;
 }

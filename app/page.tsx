@@ -1,247 +1,244 @@
 "use client";
 
 import Link from "next/link";
-import { BookCard } from "@/components/BookCard";
-import { CoinBar } from "@/components/CoinBar";
+import { useEffect, useMemo, useState } from "react";
 import { GameLogo } from "@/components/GameLogo";
-import { LevelCard } from "@/components/LevelCard";
-import { UnitCard } from "@/components/UnitCard";
-import { createEmptyLevelProgress } from "@/lib/game";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import {
-  getBookProgress,
-  getBookStatus,
+  getAllBooks,
   getAllLevels,
-  getLevelsByUnitId,
-  getLevelStatus,
+  getBookProgress,
+  getLevelsByBookId,
   getProgressSummary,
-  getRecommendedLevel,
-  getUnitProgress,
-  getUnitStatus,
-  getUnitsByBookId,
-  isLevelAheadOfRecommendation
-} from "@/lib/levelLoader";
+} from "@/lib/curriculum-index";
+import { getRecommendedEligibleLevel } from "@/lib/content-access";
+import { curriculumContentVersion } from "@/lib/curriculum-index";
+import { loadReviewMetadataIndex } from "@/lib/review-metadata";
+import { getDueReviewSnapshot } from "@/lib/review-queue";
+import { useI18n } from "@/lib/use-i18n";
+import type { ReviewMetadataIndex } from "@/types/game";
 import {
-  getDisplayableFavoriteWords,
-  getReviewableDifficultWords
-} from "@/src/lib/learning-engine";
-import { getAllBooks, getWordById } from "@/src/lib/vocabulary-loader";
-import { useGameStore } from "@/store/gameStore";
-import { isVocabularyAnswerSafeToDisplay } from "@/lib/word-card-presentation";
+  selectActiveGameProgress,
+  selectActiveProfile,
+  useGameStore
+} from "@/store/gameStore";
 
 export default function HomePage() {
-  const coins = useGameStore((state) => state.coins);
-  const savedLevels = useGameStore((state) => state.levels);
-  const savedWords = useGameStore((state) => state.words);
-  const studyStats = useGameStore((state) => state.studyStats);
+  const { t } = useI18n();
+  const profile = useGameStore(selectActiveProfile);
+  const progress = useGameStore(selectActiveGameProgress);
+  const [reviewMetadata, setReviewMetadata] = useState<ReviewMetadataIndex>();
+  const [reviewMetadataStatus, setReviewMetadataStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const books = getAllBooks();
-  const progressSummary = getProgressSummary(savedLevels);
-  const recommendedLevel = getRecommendedLevel(savedLevels);
-  const allLevels = getAllLevels();
-  const difficultWords = getReviewableDifficultWords(savedWords)
-    .filter((progress) =>
-      isVocabularyAnswerSafeToDisplay(progress.wordId, allLevels, savedLevels)
-    )
-    .map((progress) => getWordById(progress.wordId))
-    .filter((word): word is NonNullable<ReturnType<typeof getWordById>> => Boolean(word));
-  const favoriteWords = getDisplayableFavoriteWords(savedWords)
-    .filter((progress) =>
-      isVocabularyAnswerSafeToDisplay(progress.wordId, allLevels, savedLevels)
-    )
-    .map((progress) => getWordById(progress.wordId))
-    .filter((word): word is NonNullable<ReturnType<typeof getWordById>> => Boolean(word));
+  const progressSummary = getProgressSummary(progress.levels);
+  const recommendedLevel = getRecommendedEligibleLevel(
+    getAllLevels(),
+    progress.levels,
+    profile
+  );
+  const dueSnapshot = useMemo(
+    () =>
+      reviewMetadata
+        ? getDueReviewSnapshot(progress.words, profile, reviewMetadata)
+        : undefined,
+    [profile, progress.words, reviewMetadata]
+  );
+  const dueCount = dueSnapshot?.sessionCandidates.length ?? 0;
+  const restrictedDueCount = dueSnapshot?.restricted.length ?? 0;
+  const recoverableDueCount = dueSnapshot?.recoverable.length ?? 0;
+  const recommendedBookIndex = recommendedLevel
+    ? books.findIndex((book) => book.id === recommendedLevel.bookId)
+    : -1;
+  const recommendedLevelIndex = recommendedLevel
+    ? getLevelsByBookId(recommendedLevel.bookId).findIndex(
+        (level) => level.id === recommendedLevel.id
+      )
+    : -1;
+
+  useEffect(() => {
+    let current = true;
+    setReviewMetadataStatus("loading");
+    loadReviewMetadataIndex(curriculumContentVersion).then((metadata) => {
+      if (!current) return;
+      setReviewMetadata(metadata);
+      setReviewMetadataStatus(metadata ? "ready" : "error");
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
 
   return (
-    <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-10">
-        <header className="rounded-lg border-2 border-ink bg-white p-5 shadow-crisp sm:p-6">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-4">
-              <GameLogo />
-              <p className="max-w-2xl text-base font-semibold text-ink sm:text-lg">
-                Learn vocabulary through puzzle play. Follow the recommended path, or jump ahead whenever you want.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <Link
-                  href="/books"
-                  className="focus-ring inline-flex min-h-12 items-center rounded-lg border-2 border-ink bg-mint px-5 py-3 text-sm font-black text-white shadow-crisp transition hover:-translate-y-0.5"
-                >
-                  Choose Vocabulary Book
-                </Link>
-                {recommendedLevel ? (
-                  <Link
-                    href={`/levels/${recommendedLevel.id}`}
-                    className="focus-ring inline-flex min-h-12 items-center rounded-lg border-2 border-ink bg-white px-5 py-3 text-sm font-black text-ink transition hover:-translate-y-0.5 hover:bg-paper"
-                  >
-                    Continue Learning
-                  </Link>
-                ) : null}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-lg border-2 border-ink bg-paper p-4">
-                  <p className="text-xs font-black uppercase text-coral">Progress</p>
-                  <p className="mt-1 text-2xl font-black text-ink">
-                    {progressSummary.completedLevels}/{progressSummary.totalLevels}
-                  </p>
-                  <p className="mt-1 text-sm font-bold text-ink/70">Levels cleared</p>
-                </div>
-                <div className="rounded-lg border-2 border-ink bg-paper p-4">
-                  <p className="text-xs font-black uppercase text-mint">Favorites</p>
-                  <p className="mt-1 text-2xl font-black text-ink">{favoriteWords.length}</p>
-                  <p className="mt-1 text-sm font-bold text-ink/70">Saved words</p>
-                </div>
-                <div className="rounded-lg border-2 border-ink bg-paper p-4">
-                  <p className="text-xs font-black uppercase text-leaf">Difficult</p>
-                  <p className="mt-1 text-2xl font-black text-ink">{difficultWords.length}</p>
-                  <p className="mt-1 text-sm font-bold text-ink/70">Need review</p>
-                </div>
-                <div className="rounded-lg border-2 border-ink bg-paper p-4">
-                  <p className="text-xs font-black uppercase text-ink">Study Stats</p>
-                  <p className="mt-1 text-2xl font-black text-ink">
-                    {studyStats.totalWordsLearned}/{studyStats.totalWordsMastered}
-                  </p>
-                  <p className="mt-1 text-sm font-bold text-ink/70">
-                    Learned / mastered
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <CoinBar coins={coins} />
+    <main className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-4xl space-y-4">
+        <header className="rounded-lg border-2 border-ink bg-white p-4 shadow-crisp sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <GameLogo />
+            <div className="flex items-center gap-2">
+              <LanguageSwitcher />
               <Link
                 href="/settings"
-                className="focus-ring inline-flex min-h-12 items-center rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink transition hover:-translate-y-0.5 hover:bg-paper"
+                className="focus-ring inline-grid min-h-11 min-w-11 place-items-center rounded-xl border-2 border-ink bg-white text-ink shadow-crisp transition hover:-translate-y-0.5 hover:bg-paper"
+                aria-label={t("nav.settings")}
               >
-                Settings
+                <span className="px-2 text-xs font-black">{t("nav.settings")}</span>
               </Link>
             </div>
           </div>
+          <p className="mt-3 text-sm font-black text-ink/65">
+            {t("home.greeting", { name: profile.nickname })}
+          </p>
         </header>
 
-        <section className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
-            <p className="text-sm font-black uppercase text-mint">Continue Learning</p>
-            <h2 className="mt-2 text-2xl font-black text-ink">
-              {recommendedLevel ? recommendedLevel.title ?? `Level ${recommendedLevel.id}` : "All caught up"}
-            </h2>
-            <p className="mt-2 text-sm font-semibold text-ink/70">
+        <section className="overflow-hidden rounded-lg border-2 border-ink bg-ink text-white shadow-crisp">
+          <div className="p-5 sm:p-6">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-sun">
+              {t("home.todayEyebrow")}
+            </p>
+            <div className="mt-2 flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black sm:text-3xl">
+                  {recommendedLevel
+                    ? t("home.todayTitle")
+                    : t("home.todayComplete")}
+                </h2>
+                {recommendedLevel ? (
+                  <p className="mt-2 text-sm font-bold text-white/70">
+                    {t("home.todayLevel", {
+                      book: recommendedBookIndex + 1,
+                      level: recommendedLevelIndex + 1,
+                      lesson: recommendedLevel.lessonAnchor ?? "—"
+                    })}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm font-bold text-white/70">
+                    {t("home.pathComplete")}
+                  </p>
+                )}
+              </div>
+              <span className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm font-black text-sun">
+                {progressSummary.completedLevels}/{progressSummary.totalLevels}
+              </span>
+            </div>
+            <Link
+              href={recommendedLevel ? `/levels/${recommendedLevel.id}` : "/map"}
+              className="focus-ring mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-white bg-mint px-5 py-3 font-black text-white shadow-crisp transition hover:-translate-y-0.5 sm:w-auto"
+            >
               {recommendedLevel
-                ? "The next suggested step in the learning path."
-                : "You completed the current recommended path."}
-            </p>
-          </div>
-          <div id="difficult-words" className="scroll-mt-6 rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
-            <p className="text-sm font-black uppercase text-coral">Review Difficult Words</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {difficultWords.slice(0, 5).map((word) => (
-                <span
-                  key={word.id}
-                  className="rounded-lg border-2 border-ink bg-paper px-3 py-2 text-sm font-bold text-ink"
-                >
-                  {word.displayText}
-                </span>
-              ))}
-              {difficultWords.length === 0 ? (
-                <p className="text-sm font-semibold text-ink/70">No difficult words yet.</p>
-              ) : null}
-            </div>
-          </div>
-          <div className="rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
-            <p className="text-sm font-black uppercase text-leaf">Favorites</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {favoriteWords.slice(0, 5).map((word) => (
-                <span
-                  key={word.id}
-                  className="rounded-lg border-2 border-ink bg-paper px-3 py-2 text-sm font-bold text-ink"
-                >
-                  {word.displayText}
-                </span>
-              ))}
-              {favoriteWords.length === 0 ? (
-                <p className="text-sm font-semibold text-ink/70">No favorites yet.</p>
-              ) : null}
-            </div>
+                ? t("home.startAdventure")
+                : t("home.exploreMap")}
+            </Link>
           </div>
         </section>
 
-        <section className="space-y-4">
-          <div>
-            <p className="text-sm font-black uppercase text-mint">Vocabulary books</p>
-            <h2 className="text-2xl font-black text-ink">Recommended path + free play</h2>
-            <p className="mt-1 text-sm font-semibold text-ink/70">
-              Every book is available. The badges show what the system recommends next.
+        <section className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border-2 border-ink bg-paper p-4 shadow-crisp">
+            <p className="text-xs font-black uppercase tracking-[0.12em] text-coral">
+              {t("home.dueReview")}
             </p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {books.map((book) => (
-              <BookCard
-                key={book.id}
-                book={book}
-                progress={getBookProgress(book.id, savedLevels, savedWords)}
-                status={getBookStatus(book.id, savedLevels)}
-              />
-            ))}
-          </div>
-        </section>
-
-        {books.map((book) => {
-          const bookProgress = getBookProgress(book.id, savedLevels, savedWords);
-
-          return (
-            <section key={book.id} className="space-y-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm font-black uppercase text-mint">
-                    {bookProgress.completedLevels}/{bookProgress.totalLevels} levels complete
-                  </p>
-                  <h2 className="text-2xl font-black text-ink">{book.title}</h2>
-                  <p className="mt-1 text-sm font-semibold text-ink/70">
-                    {book.subtitle}
-                  </p>
-                </div>
-                <Link
-                  href={`/books/${book.id}`}
-                  className="focus-ring inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink transition hover:-translate-y-0.5 hover:bg-paper"
-                >
-                  Open book
-                </Link>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                {getUnitsByBookId(book.id).map((unit) => {
-                  const unitLevels = getLevelsByUnitId(unit.id);
-                  const unitProgress = getUnitProgress(unit.id, savedLevels, savedWords);
-                  const unitStatus = getUnitStatus(unit.id, savedLevels);
-
-                  return (
-                    <div
-                      key={unit.id}
-                      className="space-y-4 rounded-lg border-2 border-ink bg-white p-4 shadow-crisp"
-                    >
-                      <UnitCard
-                        book={book}
-                        unit={unit}
-                        progress={unitProgress}
-                        status={unitStatus}
-                        levelCount={unitLevels.length}
-                      />
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        {unitLevels.map((level) => (
-                          <LevelCard
-                            key={level.id}
-                            level={level}
-                            status={getLevelStatus(level.id, savedLevels)}
-                            isAdvanced={isLevelAheadOfRecommendation(level.id, savedLevels)}
-                            progress={savedLevels[level.id] ?? createEmptyLevelProgress()}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
+            <p className="mt-1 text-xl font-black text-ink">
+              {reviewMetadataStatus === "loading"
+                ? t("review.loading")
+                : t("home.dueNow", { count: dueCount })}
+            </p>
+            <p className="mt-1 text-sm font-bold text-ink/60">
+              {reviewMetadataStatus === "error"
+                ? t("review.loadErrorDescription")
+                : dueCount > 0
+                  ? t("home.reviewReady")
+                  : t("home.reviewClear")}
+            </p>
+            {reviewMetadataStatus === "ready" &&
+            (restrictedDueCount > 0 || recoverableDueCount > 0) ? (
+              <p className="mt-2 text-xs font-black text-ink/55">
+                {t("home.reviewHeldCounts", {
+                  restricted: restrictedDueCount,
+                  recoverable: recoverableDueCount
                 })}
-              </div>
-            </section>
-          );
-        })}
+              </p>
+            ) : null}
+            {reviewMetadataStatus === "ready" && dueCount > 0 ? (
+              <Link
+                href="/review"
+                className="focus-ring mt-3 inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-coral px-4 py-2 text-sm font-black text-white"
+              >
+                {t("home.openReview")}
+              </Link>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/map"
+              className="focus-ring flex min-h-32 flex-col justify-end rounded-lg border-2 border-ink bg-white p-4 text-ink shadow-crisp transition hover:-translate-y-0.5 hover:bg-paper"
+            >
+              <span className="text-sm font-black">{t("home.openMap")}</span>
+            </Link>
+            <Link
+              href="/books"
+              className="focus-ring flex min-h-32 flex-col justify-end rounded-lg border-2 border-ink bg-white p-4 text-ink shadow-crisp transition hover:-translate-y-0.5 hover:bg-paper"
+            >
+              <span className="text-sm font-black">{t("home.openLibrary")}</span>
+            </Link>
+          </div>
+        </section>
+
+        <section className="rounded-lg border-2 border-ink bg-white p-4 shadow-crisp">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-black text-ink">{t("home.bookProgress")}</h2>
+            <Link
+              href="/parent"
+              className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border-2 border-ink bg-paper px-3 py-2 text-xs font-black text-ink"
+            >
+              {t("nav.parent")}
+            </Link>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {books.map((book, bookIndex) => {
+              const bookProgress = getBookProgress(
+                book.id,
+                progress.levels,
+                progress.words
+              );
+              return (
+                <Link
+                  key={book.id}
+                  href={`/books/${book.id}`}
+                  className="focus-ring flex min-h-14 items-center gap-3 rounded-lg border-2 border-ink/15 bg-paper px-3 py-2 text-ink transition hover:border-ink"
+                  aria-label={t("home.bookProgressLabel", {
+                    book: bookIndex + 1,
+                    done: bookProgress.completedLevels,
+                    total: bookProgress.totalLevels
+                  })}
+                >
+                  <span className="grid h-10 w-10 flex-none place-items-center rounded-lg border-2 border-ink bg-white text-sm font-black">
+                    {bookIndex + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-black">
+                      {t("common.bookNumber", { book: bookIndex + 1 })} · {book.level}
+                    </span>
+                    <span className="mt-1 block h-2 overflow-hidden rounded-full bg-white">
+                      <span
+                        className="block h-full rounded-full bg-mint"
+                        style={{ width: `${bookProgress.completionPercent}%` }}
+                      />
+                    </span>
+                  </span>
+                  <span className="text-xs font-black text-ink/60">
+                    {bookProgress.completedLevels}/50
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        <p className="pb-2 text-center text-xs font-bold text-ink/55">
+          {t("home.privateNote")}
+        </p>
       </div>
     </main>
   );

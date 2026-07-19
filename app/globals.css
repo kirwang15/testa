@@ -47,57 +47,6 @@ input {
       linear-gradient(140deg, #130b08 0%, #21100a 46%, #080706 100%);
   }
 
-  .game-table-surface {
-    position: absolute;
-    inset: 6rem -16vw -10rem;
-    z-index: -2;
-    border-radius: 42% 58% 34% 48%;
-    transform: rotate(-10deg);
-    background:
-      linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 18%, rgba(255, 255, 255, 0.05) 32%, transparent 56%),
-      repeating-linear-gradient(96deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 12px),
-      radial-gradient(circle at 26% 18%, rgba(255, 210, 128, 0.28), transparent 32%),
-      linear-gradient(135deg, #a44613 0%, #d27a2b 36%, #9d4518 74%, #5b1e0b 100%);
-    box-shadow:
-      0 18px 0 #3a1609,
-      0 56px 90px rgba(0, 0, 0, 0.62),
-      inset 0 0 0 2px rgba(255, 210, 142, 0.18),
-      inset 0 -36px 70px rgba(49, 15, 5, 0.3);
-  }
-
-  .game-corner {
-    position: absolute;
-    z-index: -1;
-    pointer-events: none;
-    filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.42));
-  }
-
-  .game-corner-left {
-    left: -4rem;
-    top: -1.25rem;
-    width: 18rem;
-    height: 8rem;
-    border-radius: 999px 40% 999px 55%;
-    transform: rotate(-12deg);
-    background:
-      radial-gradient(circle at 40% 52%, #4b1708 0 1.25rem, transparent 1.3rem),
-      radial-gradient(circle at 58% 45%, #2e1008 0 0.65rem, transparent 0.7rem),
-      linear-gradient(145deg, #e7edf0, #98a1a8 56%, #5f666c);
-  }
-
-  .game-corner-right {
-    right: -5rem;
-    bottom: -2.25rem;
-    width: 18rem;
-    height: 8rem;
-    border-radius: 55% 999px 40% 999px;
-    transform: rotate(-11deg);
-    background:
-      radial-gradient(circle at 44% 48%, #4d1909 0 3.5rem, transparent 3.6rem),
-      radial-gradient(circle at 52% 42%, rgba(255, 210, 128, 0.14), transparent 2.2rem),
-      linear-gradient(145deg, #d8e0e5, #879098 58%, #565d64);
-  }
-
   .game-icon-button {
     display: inline-grid;
     min-width: 2.75rem;
@@ -149,16 +98,6 @@ input {
     box-shadow:
       0 12px 24px rgba(0, 0, 0, 0.32),
       inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  }
-
-  .game-feedback-float {
-    position: absolute;
-    left: 50%;
-    top: 22rem;
-    z-index: 20;
-    width: min(34rem, calc(100vw - 2rem));
-    transform: translateX(-50%);
-    pointer-events: none;
   }
 
   .game-board-panel {
@@ -218,6 +157,14 @@ input {
   .game-grid-tile-hinted {
     background: linear-gradient(180deg, #ffe88c, #ffc857 62%, #d5911f);
     color: #170804;
+  }
+
+  .game-grid-tile-active {
+    border-color: rgba(125, 211, 252, 0.95);
+    box-shadow:
+      0 0 0 3px rgba(56, 189, 248, 0.42),
+      0 7px 16px rgba(1, 8, 18, 0.34),
+      inset 0 2px 0 rgba(255, 255, 255, 0.7);
   }
 
   .game-orb-button,
@@ -351,7 +298,7 @@ input {
     width: min(100%, 290px);
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
-    margin: 0.5rem auto 0;
+    margin: 0.25rem auto 0;
   }
 
   .game-wheel-action:hover {
@@ -412,11 +359,14 @@ input {
   }
 }
 
-@media (min-width: 768px) {
-  .game-feedback-float {
-    top: 24.7rem;
-  }
+.game-grid-tile-draft {
+  border-color: rgb(125 211 252 / 0.72);
+  background: linear-gradient(145deg, #e8f7ff, #bae6fd);
+  color: #082f49;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 0 0 2px rgb(56 189 248 / 0.22);
+}
 
+@media (min-width: 768px) {
   .game-wheel-actions {
     position: absolute;
     left: calc(100% + 0.8rem);
@@ -439,18 +389,13 @@ input {
 }
 
 @media (max-width: 640px) {
-  .game-table-surface {
-    inset: 7rem -42vw -8rem;
-  }
-
-  .game-corner-left,
-  .game-corner-right {
-    opacity: 0.58;
-    transform: scale(0.72) rotate(-12deg);
-  }
-
   .game-board-panel {
     border-radius: 1.1rem;
+    padding: 0.65rem;
+  }
+
+  .game-crossword-grid {
+    padding: 0.4rem;
   }
 }
 

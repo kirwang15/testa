@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { AppHydrationGate } from "@/components/AppHydrationGate";
+import { AppLanguageSync } from "@/components/AppLanguageSync";
+import { LANGUAGE_BOOTSTRAP_SCRIPT } from "@/lib/language-bootstrap";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Word Trail MVP",
-  description: "A small English word fill puzzle MVP."
+  title: "Word Trail · 单词冒险",
+  description: "适合青少年的纯本地英语填字冒险。"
 };
 
 export default function RootLayout({
@@ -12,8 +15,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LANGUAGE_BOOTSTRAP_SCRIPT }} />
+      </head>
+      <body>
+        <AppLanguageSync />
+        <AppHydrationGate>{children}</AppHydrationGate>
+      </body>
     </html>
   );
 }

@@ -1,6 +1,10 @@
 import { UnitLevelsPage } from "@/components/UnitLevelsPage";
-import { getLevelsByUnitId } from "@/lib/levelLoader";
-import { getAllUnits, getBookById, getUnitByGlobalId } from "@/src/lib/vocabulary-loader";
+import {
+  getAllUnits,
+  getBookById,
+  getLevelsByUnitId,
+  getUnitById
+} from "@/lib/curriculum-index";
 import { notFound } from "next/navigation";
 
 type UnitPageProps = {
@@ -20,7 +24,7 @@ export function generateStaticParams() {
 export default async function UnitPage({ params }: UnitPageProps) {
   const { bookId, unitId } = await params;
   const book = getBookById(bookId);
-  const unit = getUnitByGlobalId(unitId);
+  const unit = getUnitById(unitId);
 
   if (!book || !unit || unit.bookId !== book.id) {
     notFound();

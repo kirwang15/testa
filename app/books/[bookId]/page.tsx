@@ -1,5 +1,9 @@
 import { BookUnitsPage } from "@/components/BookUnitsPage";
-import { getAllBooks, getBookById, getUnitsForBook } from "@/src/lib/vocabulary-loader";
+import {
+  getAllBooks,
+  getBookById,
+  getUnitsByBookId
+} from "@/lib/curriculum-index";
 import { notFound } from "next/navigation";
 
 type BookPageProps = {
@@ -22,5 +26,5 @@ export default async function BookPage({ params }: BookPageProps) {
     notFound();
   }
 
-  return <BookUnitsPage book={book} units={getUnitsForBook(book.id)} />;
+  return <BookUnitsPage book={book} units={getUnitsByBookId(book.id)} />;
 }
