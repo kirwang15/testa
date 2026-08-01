@@ -1,3 +1,7 @@
+"use client";
+
+import { useI18n } from "@/lib/use-i18n";
+
 export type FeedbackType =
   | "neutral"
   | "correct"
@@ -22,21 +26,21 @@ const feedbackStyles: Record<FeedbackType, string> = {
   complete: "border-teal-100/45 bg-teal-600/80 text-white animate-level-complete"
 };
 
-const feedbackEyebrows: Record<FeedbackType, string> = {
-  neutral: "Ready",
-  correct: "Correct word",
-  wrong: "Try again",
-  duplicate: "Already found",
-  hint: "Hint used",
-  complete: "Level clear"
-};
-
 export function FeedbackBanner({
   type,
   title,
   description,
   sanitizeText = (text) => text
 }: FeedbackBannerProps) {
+  const { t } = useI18n();
+  const feedbackEyebrows: Record<FeedbackType, string> = {
+    neutral: t("feedback.neutral"),
+    correct: t("feedback.correct"),
+    wrong: t("feedback.wrong"),
+    duplicate: t("feedback.duplicate"),
+    hint: t("feedback.hint"),
+    complete: t("feedback.complete")
+  };
   return (
     <div
       className={[

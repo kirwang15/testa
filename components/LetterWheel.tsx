@@ -1,9 +1,13 @@
+"use client";
+
 import { Check, Delete, RotateCcw, X } from "lucide-react";
+import { useI18n } from "@/lib/use-i18n";
 
 type LetterWheelProps = {
   letters: string[];
   selectedIndexes: number[];
   currentWord: string;
+  canSubmit?: boolean;
   disabled?: boolean;
   isSubmitting?: boolean;
   onBackspace: () => void;
@@ -17,6 +21,7 @@ export function LetterWheel({
   letters,
   selectedIndexes,
   currentWord,
+  canSubmit = false,
   disabled = false,
   isSubmitting = false,
   onBackspace,
@@ -25,11 +30,12 @@ export function LetterWheel({
   onSubmit,
   sanitizeText = (text) => text
 }: LetterWheelProps) {
-  const radius = letters.length > 5 ? 66 : 58;
+  const { t } = useI18n();
+  const radius = letters.length > 5 ? 61 : 55;
   const selectedCount = selectedIndexes.length;
   const selectedLetters = currentWord.split("");
   const canEdit = !disabled && !isSubmitting && selectedCount > 0;
-  const canSubmit = canEdit && currentWord.length > 0;
+  const submitEnabled = !disabled && !isSubmitting && canSubmit;
 
   return (
     <div className="relative mx-auto w-full max-w-[320px]">
@@ -46,9 +52,9 @@ export function LetterWheel({
         </div>
       ) : null}
 
-      <div className="game-wheel-shell relative mx-auto h-[200px] w-[200px] max-w-full sm:h-[212px] sm:w-[212px]">
+      <div className="game-wheel-shell relative mx-auto h-[184px] w-[184px] max-w-full sm:h-[212px] sm:w-[212px]">
         <div className="game-wheel-core">
-          <span>{disabled ? sanitizeText("Clear") : `${selectedCount}/${letters.length}`}</span>
+          <span>{disabled ? sanitizeText(t("common.clear")) : `${selectedCount}/${letters.length}`}</span>
         </div>
         {letters.map((letter, index) => {
           const angle = (Math.PI * 2 * index) / letters.length - Math.PI / 2;
@@ -90,7 +96,7 @@ export function LetterWheel({
           onClick={onClear}
           disabled={!canEdit}
           className="game-wheel-action focus-ring"
-          aria-label={sanitizeText("Clear selected letters")}
+          aria-label={sanitizeText(t("game.clearLetters"))}
         >
           <X className="h-5 w-5" aria-hidden="true" />
         </button>
@@ -99,16 +105,16 @@ export function LetterWheel({
           onClick={onBackspace}
           disabled={!canEdit}
           className="game-wheel-action focus-ring"
-          aria-label={sanitizeText("Remove last letter")}
+          aria-label={sanitizeText(t("game.removeLetter"))}
         >
           <Delete className="h-5 w-5" aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={onSubmit}
-          disabled={!canSubmit}
+          disabled={!submitEnabled}
           className="game-wheel-action game-wheel-action-submit focus-ring"
-          aria-label={sanitizeText("Submit current word")}
+          aria-label={sanitizeText(t("game.submitWord"))}
         >
           {isSubmitting ? (
             <RotateCcw className="h-5 w-5 animate-spin" aria-hidden="true" />

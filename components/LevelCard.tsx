@@ -1,30 +1,44 @@
+"use client";
+
 import Link from "next/link";
-import type { ProgressStatus } from "@/lib/levelLoader";
-import type { Level, LevelProgress } from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import {
+  getDifficultyTranslationKey,
+  getLevelPosition
+} from "@/lib/curriculum-presentation";
+import type { ProgressStatus } from "@/lib/curriculum-index";
+import type { CurriculumLevelIndex, LevelProgress } from "@/types/game";
 
 type LevelCardProps = {
-  level: Level;
+  level: CurriculumLevelIndex;
   progress: LevelProgress;
   status: ProgressStatus;
   isAdvanced?: boolean;
+  locked?: boolean;
 };
 
 export function LevelCard({
   level,
   progress,
   status,
-  isAdvanced = false
+  isAdvanced = false,
+  locked = false
 }: LevelCardProps) {
+  const { t } = useI18n();
   const foundCount = progress.foundWords.length;
-  const totalCount = level.targetWords.length;
-  const title = level.title ?? `Level ${level.id}`;
+  const totalCount = level.wordCount;
+  const position = getLevelPosition(level);
+  const title = t("level.displayTitle", {
+    book: position.book,
+    level: position.level ?? 1
+  });
   const completed = progress.completed;
   const stateLabel =
     status === "completed"
-      ? "Completed"
+      ? t("common.completedState")
       : status === "recommended"
-        ? "Recommended"
-        : "Available";
+        ? t("common.recommended")
+        : t("common.available");
   const statusClass =
     status === "completed"
       ? "bg-leaf text-white"
@@ -36,10 +50,14 @@ export function LevelCard({
     status === "recommended" ? "ring-4 ring-sun/60" : ""
   ].join(" ");
   const progressPercent = totalCount === 0 ? 0 : (foundCount / totalCount) * 100;
-  const actionLabel = completed ? "Replay" : status === "recommended" ? "Continue" : "Play";
+  const actionLabel = completed
+    ? t("common.replay")
+    : status === "recommended"
+      ? t("common.continue")
+      : t("common.play");
 
-  return (
-    <Link href={`/levels/${level.id}`} className={`focus-ring ${cardClass}`}>
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-4">
         <div>
           <p
@@ -48,7 +66,7 @@ export function LevelCard({
               completed ? "text-leaf" : "text-coral"
             ].join(" ")}
           >
-            Level {level.id}
+            {t("level.label", { level: position.level ?? 1 })}
           </p>
           <h2 className="mt-1 text-2xl font-black">{title}</h2>
         </div>
@@ -63,28 +81,26 @@ export function LevelCard({
           </span>
           {level.difficulty ? (
             <span className="rounded-lg border-2 border-ink bg-white px-3 py-1 text-xs font-black uppercase text-ink">
-              {level.difficulty}
+              {t(getDifficultyTranslationKey(level.difficulty))}
             </span>
           ) : null}
           {isAdvanced ? (
             <span className="rounded-lg border-2 border-ink bg-sun px-3 py-1 text-xs font-black uppercase text-ink">
-              Jump ahead
+              {t("level.jumpAhead")}
             </span>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        {level.letters.map((letter, index) => (
+      <div className="mt-5 flex flex-wrap gap-2" aria-hidden="true">
+        {Array.from({ length: totalCount }, (_, index) => (
           <span
-            key={`${letter}-${index}`}
+            key={index}
             className={[
-              "grid h-9 w-9 place-items-center rounded-lg border-2 border-ink bg-white font-black",
-              completed ? "bg-leaf text-white" : "text-ink"
+              "h-9 w-9 rounded-lg border-2 border-ink",
+              completed ? "bg-leaf" : "bg-paper"
             ].join(" ")}
-          >
-            {letter}
-          </span>
+          />
         ))}
       </div>
 
@@ -100,18 +116,27 @@ export function LevelCard({
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="text-sm font-bold">
-            <p>{completed ? "Complete" : `${foundCount}/${totalCount} words`}</p>
+            <p>{completed ? t("common.completedState") : t("level.words", { done: foundCount, total: totalCount })}</p>
             {isAdvanced ? (
               <p className="text-xs text-ink/60">
-                This level may contain more advanced vocabulary.
+                {t("level.advancedDescription")}
               </p>
             ) : null}
           </div>
           <span className="rounded-lg border-2 border-ink bg-ink px-3 py-2 text-sm font-black text-white group-hover:bg-mint">
-            {actionLabel}
+            {locked ? t("map.locked") : actionLabel}
           </span>
         </div>
       </div>
+    </>
+  );
+  return locked ? (
+    <article className={`${cardClass} opacity-70`} aria-label={`${title}. ${t("map.locked")}`}>
+      {content}
+    </article>
+  ) : (
+    <Link href={`/levels/${level.id}`} className={`focus-ring ${cardClass}`}>
+      {content}
     </Link>
   );
 }

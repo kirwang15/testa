@@ -18,6 +18,199 @@ export type VocabularyDifficulty = CEFRLevel;
 export type VocabularyColorTheme = "mint" | "coral" | "leaf" | "gold";
 export type VocabularyTheme = VocabularyColorTheme;
 export type VocabularyGenerationMode = "learning" | "review";
+export type VocabularyReviewStatus = "automated" | "human-reviewed";
+
+export type UiLanguage = "en" | "zh-CN";
+export type ClueLanguage = UiLanguage;
+export type InterfaceMode = "guided" | "immersion";
+export type AgeBand = "7-9" | "10-12" | "13-15";
+export type HydrationStatus =
+  | "loading"
+  | "ready"
+  | "recovered"
+  | "write-failed"
+  | "unsupported-version";
+
+export type ProfileActionContext = {
+  profileId: string;
+  sessionId: string;
+  levelId?: string;
+};
+
+export type LearningPreferences = {
+  uiLanguage: UiLanguage;
+  clueLanguage: ClueLanguage;
+  interfaceMode: InterfaceMode;
+};
+
+export type ContentAccessLevel = ContentRating;
+
+export type PlayerProfile = {
+  id: string;
+  nickname: string;
+  ageBand: AgeBand;
+  preferences: LearningPreferences;
+  accent: "en-US" | "en-GB";
+  createdAt: string;
+  onboardingCompleted: boolean;
+  contentAccessLevel: ContentAccessLevel;
+  contentAccessOverride: boolean;
+};
+
+export type VocabularySource = {
+  book: 1 | 2 | 3 | 4;
+  lesson: number;
+  edition: "1997";
+  verification: "double-source";
+  provenanceId: string;
+};
+
+export type VocabularyImportLevel = {
+  id: string;
+  title?: string;
+  wordIds: readonly string[];
+  lessonAnchor?: number;
+};
+
+export type ContentManifest = {
+  version: string;
+  generatedAt: string;
+  sourceHashes: string[];
+  generatorVersion: string;
+  sources?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    snapshotDate: string;
+    sha256: string;
+    licenseStatus: "unknown-reference-only" | "licensed" | "public-domain";
+    version: string;
+  }>;
+  provenanceIds?: string[];
+  mappingReport?: {
+    path: string;
+    sha256: string;
+    entries: number;
+  };
+  clueGenerator?: {
+    runtime: "ollama";
+    model: string;
+    modelDigest: string;
+    script: string;
+    policyVersion: string;
+  };
+  exampleGenerator?: {
+    runtime: "ollama";
+    model: string;
+    modelDigest: string;
+    script: string;
+    policyVersion: string;
+  };
+  wordnetVersion?: string;
+  notice?: string;
+  wordCount?: number;
+  levelCount?: number;
+  contentVersion?: string;
+  formatVersion?: number;
+  editorialOverrideHash?: string;
+  contentRatingsHash?: string;
+  layoutHash?: string;
+  generatorHash?: string;
+  contentHash?: string;
+  inputHashes?: Record<string, string>;
+};
+
+export type ContentReleaseStatus =
+  | "demo-reviewed"
+  | "automated-beta"
+  | "licensed-production";
+
+export type ContentRating = "all-ages" | "13-plus" | "parent-review";
+
+export type LevelRoutePayload = {
+  levelId: string;
+  contentVersion: string;
+};
+
+export type LevelRuntimeBundle = {
+  contentVersion: string;
+  level: Level;
+  vocabulary: RuntimeVocabularyWord[];
+  releaseStatus: ContentReleaseStatus;
+  rating: ContentRating;
+};
+
+export type RuntimeVocabularyWord = VocabularyWord & {
+  rating: ContentRating;
+};
+
+export type RuntimeVocabularyWordBundle = {
+  contentVersion: string;
+  word: RuntimeVocabularyWord;
+};
+
+export type ReviewWordMetadata = {
+  sourceBook: 1 | 2 | 3 | 4;
+  contentRating: ContentRating;
+};
+
+/**
+ * Answer-free lookup keyed by a deterministic fingerprint of the local word
+ * id. It intentionally contains neither spellings nor clear-text word ids.
+ */
+export type ReviewMetadataIndex = {
+  contentVersion: string;
+  entries: Record<string, readonly [1 | 2 | 3 | 4, ContentRating]>;
+};
+
+/**
+ * Answer-free curriculum metadata. These records are safe to serialize into
+ * non-game pages: they intentionally contain no spellings, word ids, clues,
+ * letter bags, examples, or grid answers.
+ */
+export type CurriculumLevelIndex = {
+  id: string;
+  bookId: string;
+  unitId: string;
+  title?: string;
+  difficulty?: LevelDifficulty;
+  wordCount: number;
+  lessonAnchor?: number;
+  layoutRevision?: string;
+  releaseStatus: ContentReleaseStatus;
+  rating: ContentRating;
+};
+
+export type CurriculumUnitIndex = {
+  id: string;
+  bookId: string;
+  title: string;
+  lessonRange?: string;
+  difficulty: CEFRLevel;
+  estimatedMinutes?: number;
+  wordCount: number;
+  levelIds: string[];
+};
+
+export type CurriculumBookIndex = {
+  id: string;
+  title: string;
+  subtitle: string;
+  description?: string;
+  level: CEFRLevel;
+  estimatedWordCount: number;
+  colorTheme?: VocabularyColorTheme;
+  contentKind: "curriculum";
+  unitIds: string[];
+};
+
+export type CurriculumIndex = {
+  contentVersion: string;
+  generatedAt: string;
+  books: CurriculumBookIndex[];
+  units: CurriculumUnitIndex[];
+  levels: CurriculumLevelIndex[];
+};
 
 export type TargetWord = {
   id: string;
@@ -29,6 +222,7 @@ export type TargetWord = {
   direction: Direction;
   vocabularyWordId?: string;
   learningConcept?: string;
+  source?: VocabularySource;
 };
 
 export type Level = {
@@ -43,6 +237,7 @@ export type Level = {
   perfectBonusCoins?: number;
   difficulty?: LevelDifficulty;
   mode?: VocabularyGenerationMode;
+  layoutRevision?: string;
 };
 
 export type VocabularyBook = {
@@ -53,6 +248,7 @@ export type VocabularyBook = {
   level: CEFRLevel;
   estimatedWordCount?: number;
   colorTheme?: VocabularyColorTheme;
+  contentKind?: "curriculum" | "legacy";
   unitIds: string[];
 };
 
@@ -64,6 +260,7 @@ export type VocabularyUnit = {
   difficulty: CEFRLevel;
   estimatedMinutes?: number;
   wordIds: string[];
+  levels?: VocabularyImportLevel[];
 };
 
 export type VocabularyWord = {
@@ -82,6 +279,8 @@ export type VocabularyWord = {
   examples: string[];
   tags: string[];
   learningConcept?: string;
+  reviewStatus?: VocabularyReviewStatus;
+  source?: VocabularySource;
 };
 
 export type VocabularyImportWord = {
@@ -99,6 +298,8 @@ export type VocabularyImportWord = {
   examples?: string[];
   tags?: string[];
   learningConcept?: string;
+  reviewStatus?: VocabularyReviewStatus;
+  source?: VocabularySource;
 };
 
 export type VocabularyImportUnit = {
@@ -108,6 +309,7 @@ export type VocabularyImportUnit = {
   difficulty: CEFRLevel;
   estimatedMinutes?: number;
   words: VocabularyImportWord[];
+  levels?: VocabularyImportLevel[];
 };
 
 export type VocabularyImportBook = {
@@ -118,6 +320,7 @@ export type VocabularyImportBook = {
   level: CEFRLevel;
   estimatedWordCount?: number;
   colorTheme?: VocabularyColorTheme;
+  contentKind?: "curriculum" | "legacy";
   units: VocabularyImportUnit[];
 };
 
@@ -139,6 +342,7 @@ export type LevelAttemptProgress = {
 };
 
 export type LevelProgress = LevelAttemptProgress & {
+  layoutRevision?: string;
   completed: boolean;
   completedAt?: string;
   bestStars: number;
@@ -151,6 +355,10 @@ export type ReviewReason = "wrong" | "clue";
 
 export type WordLearningProgress = {
   wordId: string;
+  /** Answer-free access metadata captured when the word is first played. */
+  sourceBook?: 1 | 2 | 3 | 4;
+  contentRating?: ContentRating;
+  contentVersion?: string;
   masteryLevel: number;
   correctCount: number;
   wrongCount: number;
@@ -160,6 +368,7 @@ export type WordLearningProgress = {
   reviewReasons?: ReviewReason[];
   lastReviewed?: string;
   nextReview?: string;
+  firstTryCorrectRecorded?: boolean;
 };
 
 export type LearningStatistics = {
@@ -168,6 +377,10 @@ export type LearningStatistics = {
   totalStudyMinutes: number;
   studyStreak: number;
   lastStudyDate?: string;
+  firstTryCorrectWords?: number;
+  completedDueReviews?: number;
+  actualHintEvents?: number;
+  activeDateKeys?: string[];
 };
 
 export type LearningSnapshot = {
@@ -184,6 +397,14 @@ export type GameProgress = {
   levels: Record<string, LevelProgress>;
   words: Record<string, WordLearningProgress>;
   studyStats: LearningStatistics;
+};
+
+export type ProfiledGameProgress = {
+  storageVersion: 3;
+  contentVersion: string;
+  profiles: Record<string, PlayerProfile>;
+  activeProfileId: string;
+  progressByProfileId: Record<string, GameProgress>;
 };
 
 export type BookProgress = {
@@ -223,6 +444,10 @@ export type WordDetailViewModel = {
 
 export type SubmitWordResult =
   | {
+      status: "read-only";
+      attempt: string;
+    }
+  | {
       status: "correct";
       attempt: string;
       word: TargetWord;
@@ -253,6 +478,9 @@ export type SubmitWordResult =
     };
 
 export type HintResult =
+  | {
+      status: "read-only";
+    }
   | {
       status: "revealed";
       cellKey: CellKey;

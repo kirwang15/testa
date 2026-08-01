@@ -1,9 +1,17 @@
-import { vocabularySources } from "../content/vocabulary";
+import {
+  contentManifest,
+  LEGACY_CONTENT_PREFIX,
+  legacyVocabularySources,
+  vocabularySources
+} from "../content/vocabulary";
+import provenanceReport from "../content/vocabulary/generated/nce-1997-provenance.json";
 import {
   createEmptyWordLearningProgress,
   summarizeWordProgress
 } from "./learning-engine";
 import {
+  analyzeCrosswordLayout,
+  generateLevelFromWords,
   generateLevelsFromUnit,
   type GenerateLevelsOptions
 } from "./level-generator";
@@ -16,11 +24,35 @@ import type {
   VocabularyBook,
   VocabularyColorTheme,
   VocabularyImportBook,
+  VocabularyImportLevel,
   VocabularyUnit,
   VocabularyWord,
   WordDetailViewModel,
   WordLearningProgress
 } from "@/types/game";
+
+const CURRICULUM_LESSON_LIMITS: Record<1 | 2 | 3 | 4, number> = {
+  1: 144,
+  2: 96,
+  3: 60,
+  4: 48
+};
+const REVIEW_STATUS_VALUES = new Set(["automated", "human-reviewed"]);
+const VERIFIED_PROVENANCE_IDS = new Set(contentManifest.provenanceIds ?? []);
+const MANIFEST_SOURCE_IDS = new Set(
+  (contentManifest.sources ?? []).map((source) => source.id)
+);
+const PROVENANCE_BY_WORD_ID = new Map(
+  provenanceReport.entries.map((entry) => [entry.wordId, entry] as const)
+);
+const EXPECTED_CURRICULUM_BOOK_IDS = [
+  "nce-1997-b1",
+  "nce-1997-b2",
+  "nce-1997-b3",
+  "nce-1997-b4"
+] as const;
+const GENERIC_EXAMPLE_PATTERN =
+  /after this lesson|own sentence|practice word|example sentence/i;
 
 export type VocabularyValidationIssue = {
   type:
@@ -31,13 +63,18 @@ export type VocabularyValidationIssue = {
     | "empty-unit"
     | "duplicate-word"
     | "duplicate-meaning"
-    | "duplicate-concept";
+    | "duplicate-concept"
+    | "duplicate-level-id"
+    | "invalid-level"
+    | "invalid-source"
+    | "placeholder-content";
   message: string;
   bookId?: string;
   unitId?: string;
   wordId?: string;
   word?: string;
   relatedWordIds?: string[];
+  levelId?: string;
 };
 
 type VocabularyData = {
@@ -64,6 +101,27 @@ function normalizeStringList(value: string[] | undefined) {
     : [];
 }
 
+function getAnswerForms(spelling: string) {
+  const forms = new Set([spelling]);
+  if (/[^aeiou]y$/i.test(spelling)) {
+    forms.add(`${spelling.slice(0, -1)}ies`);
+    forms.add(`${spelling.slice(0, -1)}ied`);
+  } else {
+    forms.add(
+      /(?:s|x|z|ch|sh|o)$/i.test(spelling) ? `${spelling}es` : `${spelling}s`
+    );
+    forms.add(/e$/i.test(spelling) ? `${spelling}d` : `${spelling}ed`);
+  }
+  if (/ie$/i.test(spelling)) {
+    forms.add(`${spelling.slice(0, -2)}ying`);
+  } else if (/e$/i.test(spelling) && !/ee$/i.test(spelling)) {
+    forms.add(`${spelling.slice(0, -1)}ing`);
+  } else {
+    forms.add(`${spelling}ing`);
+  }
+  return [...forms];
+}
+
 function normalizeColorTheme(
   colorTheme: VocabularyColorTheme | undefined
 ) {
@@ -74,7 +132,9 @@ function normalizeWordEntry(
   bookId: string,
   unitId: string,
   unit: VocabularyImportBook["units"][number],
-  word: VocabularyImportBook["units"][number]["words"][number]
+  word: VocabularyImportBook["units"][number]["words"][number],
+  requireCurriculumMetadata: boolean,
+  expectedBookNumber?: 1 | 2 | 3 | 4
 ): { normalizedWord?: VocabularyWord; issue?: VocabularyValidationIssue } {
   const normalizedId = normalizeText(word.id);
   const normalizedWord = normalizeText(word.word);
@@ -92,6 +152,133 @@ function normalizeWordEntry(
         message: `Ignored an invalid word entry in ${bookId}/${unitId}.`
       }
     };
+  }
+
+  const source = word.source;
+  const sourceBaseIsValid = Boolean(
+    source &&
+      [1, 2, 3, 4].includes(source.book) &&
+      Number.isInteger(source.lesson) &&
+      source.lesson > 0 &&
+      source.edition === "1997" &&
+      source.verification === "double-source" &&
+      normalizeText(source.provenanceId)
+  );
+  const sourceIsValid = Boolean(
+    sourceBaseIsValid &&
+      source &&
+      (!requireCurriculumMetadata ||
+        (expectedBookNumber !== undefined &&
+          source.book === expectedBookNumber &&
+          source.lesson <= CURRICULUM_LESSON_LIMITS[expectedBookNumber] &&
+          VERIFIED_PROVENANCE_IDS.has(normalizeText(source.provenanceId)) &&
+          (() => {
+            const reportEntry = PROVENANCE_BY_WORD_ID.get(normalizedId);
+            return Boolean(
+              reportEntry &&
+                reportEntry.word === normalizedWord &&
+                reportEntry.book === source.book &&
+                reportEntry.lesson === source.lesson &&
+                reportEntry.provenanceId === normalizeText(source.provenanceId) &&
+                reportEntry.sourceIds.length >= 2 &&
+                reportEntry.sourceIds.every((sourceId) =>
+                  MANIFEST_SOURCE_IDS.has(sourceId)
+                )
+            );
+          })()))
+  );
+  const reviewStatusIsValid = REVIEW_STATUS_VALUES.has(
+    String(word.reviewStatus ?? "")
+  );
+
+  if (requireCurriculumMetadata && (!sourceIsValid || !reviewStatusIsValid)) {
+    return {
+      issue: {
+        type: "invalid-source",
+        bookId,
+        unitId,
+        wordId: normalizedId,
+        word: normalizedWord,
+        message: `Curriculum word "${normalizedId}" is missing verified 1997 source metadata or review status.`
+      }
+    };
+  }
+
+  const contentFields = [
+    normalizedEnglishMeaning,
+    normalizeText(word.chineseMeaning),
+    ...normalizeStringList(word.examples)
+  ];
+  const normalizedExamples = normalizeStringList(word.examples);
+  const hasPlaceholder = contentFields.some((field) =>
+    /placeholder|practice word|no explanation available/i.test(field ?? "")
+  );
+  const hasDirtyTranslation = /^(?:\.|。)|校少|挡风\s+玻璃/.test(
+    normalizeText(word.chineseMeaning)
+  );
+
+  if (requireCurriculumMetadata && (hasPlaceholder || hasDirtyTranslation)) {
+    return {
+      issue: {
+        type: "placeholder-content",
+        bookId,
+        unitId,
+        wordId: normalizedId,
+        word: normalizedWord,
+        message: `Curriculum word "${normalizedId}" contains placeholder content.`
+      }
+    };
+  }
+
+  if (
+    requireCurriculumMetadata &&
+    (!normalizedEnglishMeaning ||
+      !normalizeText(word.chineseMeaning) ||
+      !normalizeText(word.phonetic) ||
+      !normalizeText(word.partOfSpeech) ||
+      normalizedExamples.length === 0)
+  ) {
+    return {
+      issue: {
+        type: "placeholder-content",
+        bookId,
+        unitId,
+        wordId: normalizedId,
+        word: normalizedWord,
+        message: `Curriculum word "${normalizedId}" is missing a required clue, translation, phonetic, part of speech, or example.`
+      }
+    };
+  }
+
+  if (requireCurriculumMetadata) {
+    const example = normalizedExamples[0] ?? "";
+    const exampleWordCount =
+      example.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g)?.length ?? 0;
+    const escapedSpelling = normalizedWord.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&"
+    );
+    const exampleIsValid =
+      normalizedExamples.length === 1 &&
+      exampleWordCount >= 4 &&
+      exampleWordCount <= 16 &&
+      new RegExp(`\\b${escapedSpelling}\\b`, "i").test(example) &&
+      !/[\u3400-\u9fff]/u.test(example) &&
+      !GENERIC_EXAMPLE_PATTERN.test(example) &&
+      /[.!?]$/.test(example);
+
+    if (!exampleIsValid) {
+      return {
+        issue: {
+          type: "placeholder-content",
+          bookId,
+          unitId,
+          wordId: normalizedId,
+          word: normalizedWord,
+          message: `Curriculum word "${normalizedId}" needs one original 4-16 word example containing the exact spelling.`
+        }
+      };
+    }
   }
 
   return {
@@ -114,9 +301,19 @@ function normalizeWordEntry(
         typeof word.frequencyRank === "number" && Number.isFinite(word.frequencyRank)
           ? Math.max(1, Math.floor(word.frequencyRank))
           : undefined,
-      examples: normalizeStringList(word.examples),
+      examples: normalizedExamples,
       tags: normalizeStringList(word.tags),
-      learningConcept: normalizeText(word.learningConcept) || undefined
+      learningConcept: normalizeText(word.learningConcept) || undefined,
+      reviewStatus: word.reviewStatus,
+      source: sourceBaseIsValid && source
+        ? {
+            book: source.book,
+            lesson: source.lesson,
+            edition: source.edition,
+            verification: source.verification,
+            provenanceId: normalizeText(source.provenanceId)
+          }
+        : undefined
     }
   };
 }
@@ -131,7 +328,9 @@ function mapUniquenessIssue(issue: ReturnType<typeof validateVocabularyUniquenes
 }
 
 function buildVocabularyData(
-  sources: VocabularyImportBook[] = vocabularySources
+  sources: VocabularyImportBook[] = vocabularySources,
+  strictCurriculum = false,
+  throwOnFatal = strictCurriculum
 ): VocabularyData {
   const issues: VocabularyValidationIssue[] = [];
   const books: VocabularyBook[] = [];
@@ -144,6 +343,31 @@ function buildVocabularyData(
   const wordIdsByUnitId = new Map<string, string[]>();
   const seenBookIds = new Set<string>();
   const seenWordIds = new Set<string>();
+  const seenLevelIds = new Set<string>();
+
+  if (
+    strictCurriculum &&
+    (!Array.isArray(contentManifest.sources) ||
+      contentManifest.sources.length < 2 ||
+      !contentManifest.sources.every(
+        (source) =>
+          source.id.trim().length > 0 &&
+          /^https:\/\//.test(source.url) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(source.snapshotDate) &&
+          /^sha256:[0-9a-f]{64}$/.test(source.sha256) &&
+          ["unknown-reference-only", "licensed", "public-domain"].includes(
+            source.licenseStatus
+          ) &&
+          source.version.trim().length > 0
+      ) ||
+      VERIFIED_PROVENANCE_IDS.size === 0 ||
+      contentManifest.mappingReport?.entries !== 800)
+  ) {
+    issues.push({
+      type: "invalid-source",
+      message: "Curriculum content manifest is missing structured sources, provenance ids, or its 800-entry mapping report."
+    });
+  }
 
   for (const book of sources) {
     const bookId = normalizeText(book.id);
@@ -158,6 +382,19 @@ function buildVocabularyData(
     }
 
     seenBookIds.add(bookId);
+    const requireCurriculumMetadata =
+      strictCurriculum || book.contentKind === "curriculum";
+    const bookNumberMatch = /^nce-1997-b([1-4])$/.exec(bookId);
+    const expectedBookNumber = bookNumberMatch
+      ? (Number(bookNumberMatch[1]) as 1 | 2 | 3 | 4)
+      : undefined;
+    if (strictCurriculum && book.contentKind !== "curriculum") {
+      issues.push({
+        type: "invalid-source",
+        bookId,
+        message: `Primary book "${bookId}" must declare contentKind="curriculum".`
+      });
+    }
     const seenUnitIds = new Set<string>();
     const unitIds: string[] = [];
 
@@ -178,7 +415,14 @@ function buildVocabularyData(
       const unitWordIds: string[] = [];
 
       for (const word of unit.words) {
-        const result = normalizeWordEntry(bookId, unitId, unit, word);
+        const result = normalizeWordEntry(
+          bookId,
+          unitId,
+          unit,
+          word,
+          requireCurriculumMetadata,
+          expectedBookNumber
+        );
 
         if (result.issue) {
           issues.push(result.issue);
@@ -218,6 +462,95 @@ function buildVocabularyData(
         continue;
       }
 
+      const normalizedLevels: VocabularyImportLevel[] = [];
+      let previousLessonAnchor = 0;
+
+      for (const level of unit.levels ?? []) {
+        const levelId = normalizeText(level.id);
+        const wordIds = level.wordIds
+          .map((wordId) => normalizeText(wordId))
+          .filter(Boolean);
+        const lessonAnchor = level.lessonAnchor;
+        const validWordIds = new Set(unitWordIds);
+        const validLevel =
+          levelId.length > 0 &&
+          !seenLevelIds.has(levelId) &&
+          wordIds.length >= 3 &&
+          wordIds.length <= 5 &&
+          new Set(wordIds).size === wordIds.length &&
+          wordIds.every((wordId) => validWordIds.has(wordId)) &&
+          (!requireCurriculumMetadata ||
+            (Number.isInteger(lessonAnchor) &&
+              Number(lessonAnchor) > 0 &&
+              expectedBookNumber !== undefined &&
+              Number(lessonAnchor) <=
+                CURRICULUM_LESSON_LIMITS[expectedBookNumber] &&
+              Number(lessonAnchor) >= previousLessonAnchor));
+
+        if (!validLevel) {
+          issues.push({
+            type: seenLevelIds.has(levelId)
+              ? "duplicate-level-id"
+              : "invalid-level",
+            bookId,
+            unitId,
+            levelId: levelId || undefined,
+            message: `Invalid explicit level "${levelId || "(missing id)"}" in ${bookId}/${unitId}.`
+          });
+          continue;
+        }
+
+        seenLevelIds.add(levelId);
+        previousLessonAnchor = Number(lessonAnchor ?? previousLessonAnchor);
+        normalizedLevels.push({
+          id: levelId,
+          title: normalizeText(level.title) || undefined,
+          wordIds,
+          lessonAnchor
+        });
+      }
+
+      if (requireCurriculumMetadata) {
+        for (const level of normalizedLevels) {
+          const levelWords = level.wordIds
+            .map((wordId) => wordsById.get(wordId))
+            .filter((word): word is VocabularyWord => Boolean(word));
+          for (const clueOwner of levelWords) {
+            for (const answer of levelWords) {
+              const leakedForm = getAnswerForms(answer.word).find((form) => {
+                const escapedAnswer = form.replace(
+                  /[.*+?^${}()|[\]\\]/g,
+                  "\\$&"
+                );
+                return new RegExp(`\\b${escapedAnswer}\\b`, "i").test(
+                  clueOwner.englishMeaning ?? ""
+                );
+              });
+              if (leakedForm) {
+                issues.push({
+                  type: "placeholder-content",
+                  bookId,
+                  unitId,
+                  wordId: clueOwner.id,
+                  word: clueOwner.word,
+                  levelId: level.id,
+                  message: `Curriculum clue for "${clueOwner.id}" leaks inflected level answer "${leakedForm}" from "${answer.word}".`
+                });
+              }
+            }
+          }
+        }
+      }
+
+      if (requireCurriculumMetadata && normalizedLevels.length === 0) {
+        issues.push({
+          type: "invalid-level",
+          bookId,
+          unitId,
+          message: `Curriculum unit "${unitId}" has no explicit levels.`
+        });
+      }
+
       const normalizedUnit: VocabularyUnit = {
         id: unitId,
         bookId,
@@ -228,13 +561,55 @@ function buildVocabularyData(
           typeof unit.estimatedMinutes === "number" && Number.isFinite(unit.estimatedMinutes)
             ? Math.max(1, Math.floor(unit.estimatedMinutes))
             : undefined,
-        wordIds: unitWordIds
+        wordIds: unitWordIds,
+        levels: normalizedLevels
       };
 
       units.push(normalizedUnit);
       unitsById.set(unitId, normalizedUnit);
       wordIdsByUnitId.set(unitId, unitWordIds);
       unitIds.push(unitId);
+    }
+
+    if (requireCurriculumMetadata) {
+      const bookUnits = unitIds
+        .map((unitId) => unitsById.get(unitId))
+        .filter((unit): unit is VocabularyUnit => Boolean(unit));
+      const curriculumLevels = bookUnits.flatMap((unit) => unit.levels ?? []);
+      const curriculumWordIds = bookUnits.flatMap((unit) => unit.wordIds);
+      const anchors = curriculumLevels.map((level) => level.lessonAnchor ?? 0);
+      const expectedSizes = [
+        ...Array(15).fill(3),
+        ...Array(20).fill(4),
+        ...Array(15).fill(5)
+      ];
+      const referencedWordIds = curriculumLevels.flatMap(
+        (level) => level.wordIds
+      );
+      const referencedWordIdSet = new Set(referencedWordIds);
+      const curriculumWordIdSet = new Set(curriculumWordIds);
+      const exactWordCoverage =
+        referencedWordIds.length === curriculumWordIds.length &&
+        referencedWordIdSet.size === curriculumWordIdSet.size &&
+        curriculumWordIds.every((wordId) => referencedWordIdSet.has(wordId));
+      const shapeIsValid =
+        curriculumLevels.length === 50 &&
+        curriculumWordIds.length === 200 &&
+        curriculumLevels.every(
+          (level, index) => level.wordIds.length === expectedSizes[index]
+        ) &&
+        exactWordCoverage &&
+        anchors.every(
+          (anchor, index) => index === 0 || anchor >= anchors[index - 1]
+        );
+
+      if (!shapeIsValid) {
+        issues.push({
+          type: "invalid-level",
+          bookId,
+          message: `Curriculum book "${bookId}" must contain 50 ordered levels and 200 words in the 3/4/5-word progression.`
+        });
+      }
     }
 
     const normalizedBook: VocabularyBook = {
@@ -248,6 +623,7 @@ function buildVocabularyData(
           ? Math.max(0, Math.floor(book.estimatedWordCount))
           : unitIds.reduce((sum, unitId) => sum + (wordIdsByUnitId.get(unitId)?.length ?? 0), 0),
       colorTheme: normalizeColorTheme(book.colorTheme),
+      contentKind: book.contentKind,
       unitIds
     };
 
@@ -257,6 +633,52 @@ function buildVocabularyData(
   }
 
   issues.push(...validateVocabularyUniqueness(words).map(mapUniquenessIssue));
+
+  if (strictCurriculum) {
+    const actualBookIds = books.map((book) => book.id).sort();
+    const expectedBookIds = [...EXPECTED_CURRICULUM_BOOK_IDS].sort();
+    const totalLevels = units.reduce(
+      (total, unit) => total + (unit.levels?.length ?? 0),
+      0
+    );
+    if (
+      sources.length !== 4 ||
+      books.length !== 4 ||
+      JSON.stringify(actualBookIds) !== JSON.stringify(expectedBookIds) ||
+      words.length !== 800 ||
+      totalLevels !== 200
+    ) {
+      issues.push({
+        type: "invalid-source",
+        message:
+          "Strict curriculum must contain exactly nce-1997-b1..b4, 200 levels, and 800 words."
+      });
+    }
+  }
+
+  if (throwOnFatal) {
+    const fatalTypes = new Set<VocabularyValidationIssue["type"]>([
+      "duplicate-book-id",
+      "duplicate-unit-id",
+      "duplicate-word-id",
+      "duplicate-word",
+      "invalid-word",
+      "empty-unit",
+      "duplicate-level-id",
+      "invalid-level",
+      "invalid-source",
+      "placeholder-content"
+    ]);
+    const fatalIssues = issues.filter((issue) => fatalTypes.has(issue.type));
+
+    if (fatalIssues.length > 0) {
+      throw new Error(
+        `Curriculum validation failed: ${fatalIssues
+          .map((issue) => issue.message)
+          .join(" | ")}`
+      );
+    }
+  }
 
   return {
     books,
@@ -271,7 +693,8 @@ function buildVocabularyData(
   };
 }
 
-const vocabularyData = buildVocabularyData();
+const vocabularyData = buildVocabularyData(vocabularySources, true);
+const legacyVocabularyData = buildVocabularyData(legacyVocabularySources);
 
 export function normalizeVocabularySources(
   sources: VocabularyImportBook[] = vocabularySources
@@ -308,9 +731,10 @@ function countWordProgress(
 }
 
 export function validateVocabularySources(
-  sources: VocabularyImportBook[] = vocabularySources
+  sources: VocabularyImportBook[] = vocabularySources,
+  strictCurriculum = false
 ) {
-  return buildVocabularyData(sources).issues;
+  return buildVocabularyData(sources, strictCurriculum, false).issues;
 }
 
 export function getVocabularyValidationIssues() {
@@ -322,7 +746,14 @@ export function getAllBooks() {
 }
 
 export function getBookById(bookId: string) {
-  return vocabularyData.booksById.get(bookId);
+  const canonicalLegacyBookId = bookId.startsWith(LEGACY_CONTENT_PREFIX)
+    ? bookId
+    : `${LEGACY_CONTENT_PREFIX}${bookId}`;
+  return (
+    vocabularyData.booksById.get(bookId) ??
+    legacyVocabularyData.booksById.get(bookId) ??
+    legacyVocabularyData.booksById.get(canonicalLegacyBookId)
+  );
 }
 
 export function getAllUnits() {
@@ -330,27 +761,67 @@ export function getAllUnits() {
 }
 
 export function getUnitsForBook(bookId: string) {
-  const unitIds = vocabularyData.unitIdsByBookId.get(bookId) ?? [];
+  const canonicalLegacyBookId = bookId.startsWith(LEGACY_CONTENT_PREFIX)
+    ? bookId
+    : `${LEGACY_CONTENT_PREFIX}${bookId}`;
+  const sourceData = vocabularyData.unitIdsByBookId.has(bookId)
+    ? vocabularyData
+    : legacyVocabularyData;
+  const resolvedBookId = sourceData === vocabularyData
+    ? bookId
+    : canonicalLegacyBookId;
+  const unitIds = sourceData.unitIdsByBookId.get(resolvedBookId) ?? [];
   return unitIds
-    .map((unitId) => vocabularyData.unitsById.get(unitId))
+    .map((unitId) => sourceData.unitsById.get(unitId))
     .filter((unit): unit is VocabularyUnit => Boolean(unit));
 }
 
 export function getUnitById(bookId: string, unitId: string) {
-  const unit = vocabularyData.unitsById.get(unitId);
-  return unit?.bookId === bookId ? unit : undefined;
+  const primaryUnit = vocabularyData.unitsById.get(unitId);
+  if (primaryUnit?.bookId === bookId) {
+    return primaryUnit;
+  }
+  const canonicalUnitId = unitId.startsWith(LEGACY_CONTENT_PREFIX)
+    ? unitId
+    : `${LEGACY_CONTENT_PREFIX}${unitId}`;
+  const canonicalBookId = bookId.startsWith(LEGACY_CONTENT_PREFIX)
+    ? bookId
+    : `${LEGACY_CONTENT_PREFIX}${bookId}`;
+  const legacyUnit = legacyVocabularyData.unitsById.get(canonicalUnitId);
+  return legacyUnit?.bookId === canonicalBookId ? legacyUnit : undefined;
 }
 
 export function getUnitByGlobalId(unitId: string) {
-  return vocabularyData.unitsById.get(unitId);
+  return (
+    vocabularyData.unitsById.get(unitId) ??
+    legacyVocabularyData.unitsById.get(unitId) ??
+    legacyVocabularyData.unitsById.get(`${LEGACY_CONTENT_PREFIX}${unitId}`)
+  );
 }
 
 export function getAllWords() {
   return vocabularyData.words;
 }
 
+/** Build-time only export used to compile isolated Legacy runtime bundles. */
+export function getLegacyRegistryWords() {
+  return legacyVocabularyData.words;
+}
+
 export function getWordById(wordId: string) {
-  return vocabularyData.wordsById.get(wordId);
+  return (
+    vocabularyData.wordsById.get(wordId) ??
+    legacyVocabularyData.wordsById.get(wordId) ??
+    legacyVocabularyData.wordsById.get(`${LEGACY_CONTENT_PREFIX}${wordId}`)
+  );
+}
+
+export function getLegacyRegistrySnapshot() {
+  return {
+    bookIds: legacyVocabularyData.books.map((book) => book.id),
+    unitIds: legacyVocabularyData.units.map((unit) => unit.id),
+    wordIds: legacyVocabularyData.words.map((word) => word.id)
+  };
 }
 
 export function getUnitWords(bookId: string, unitId: string) {
@@ -360,8 +831,12 @@ export function getUnitWords(bookId: string, unitId: string) {
     return [];
   }
 
+  const sourceData = vocabularyData.unitsById.has(unit.id)
+    ? vocabularyData
+    : legacyVocabularyData;
+
   return unit.wordIds
-    .map((wordId) => vocabularyData.wordsById.get(wordId))
+    .map((wordId) => sourceData.wordsById.get(wordId))
     .filter((word): word is VocabularyWord => Boolean(word));
 }
 
@@ -390,14 +865,107 @@ export function getWordDetailViewModel(
   };
 }
 
+const curriculumLevelCache = new Map<string, Level[]>();
+
+function buildCurriculumLevelsForUnit(unit: VocabularyUnit): Level[] {
+  return (unit.levels ?? []).map((definition) => {
+      const words = definition.wordIds
+        .map((wordId) => vocabularyData.wordsById.get(wordId))
+        .filter((word): word is VocabularyWord => Boolean(word));
+      const level = generateLevelFromWords(words, {
+        id: definition.id,
+        title: definition.title,
+        bookId: unit.bookId,
+        unitId: unit.id,
+        mode: "learning",
+        requireConnected: true,
+        maxGridSize: 11,
+        manifestVersion: contentManifest.version
+      });
+
+      if (!level) {
+        throw new Error(`Unable to generate curriculum level ${definition.id}.`);
+      }
+
+      const analysis = analyzeCrosswordLayout({
+        grid: level.grid,
+        placements: level.targetWords.map((word, index) => ({
+          index,
+          word: word.word,
+          start: word.start,
+          direction: word.direction
+        }))
+      });
+
+      if (
+        !analysis.connected ||
+        !analysis.hasAcrossAndDown ||
+        analysis.conflicts.length > 0 ||
+        analysis.unexpectedRuns.length > 0 ||
+        !analysis.withinGrid
+      ) {
+        throw new Error(`Curriculum level ${definition.id} failed crossword validation.`);
+      }
+
+      return level;
+    });
+}
+
+function canUseCurriculumCache(options: GenerateLevelsOptions) {
+  return Object.keys(options).every((key) => key === "mode") &&
+    (options.mode ?? "learning") === "learning";
+}
+
+export function resetCurriculumLevelCacheForDiagnostics() {
+  curriculumLevelCache.clear();
+}
+
+export function getCurriculumLevelCacheSize() {
+  return curriculumLevelCache.size;
+}
+
 export function resolveLevelsForUnit(
   unit: VocabularyUnit,
   options: GenerateLevelsOptions = {}
 ): Level[] {
+  if ((unit.levels?.length ?? 0) > 0 && (options.mode ?? "learning") === "learning") {
+    if (!canUseCurriculumCache(options)) {
+      return buildCurriculumLevelsForUnit(unit);
+    }
+    const cached = curriculumLevelCache.get(unit.id);
+    if (cached) {
+      return cached;
+    }
+    const levels = buildCurriculumLevelsForUnit(unit);
+    curriculumLevelCache.set(unit.id, levels);
+    return levels;
+  }
+
   return generateLevelsFromUnit(unit, {
     ...options,
     words: options.words ?? getUnitWords(unit.bookId, unit.id)
   });
+}
+
+export function resolveLegacyLevelsForUnit(
+  unit: VocabularyUnit,
+  options: GenerateLevelsOptions = {}
+) {
+  const wordIds = legacyVocabularyData.wordIdsByUnitId.get(unit.id) ?? [];
+  const words = wordIds
+    .map((wordId) => legacyVocabularyData.wordsById.get(wordId))
+    .filter((word): word is VocabularyWord => Boolean(word));
+
+  return generateLevelsFromUnit(unit, {
+    ...options,
+    words
+  });
+}
+
+export function getLegacyResolvedLevels(options: GenerateLevelsOptions = {}) {
+  return legacyVocabularyData.units.flatMap((unit) =>
+    resolveLegacyLevelsForUnit(unit, options)
+  );
 }
 
 export function getLevelsForUnit(
@@ -406,14 +974,24 @@ export function getLevelsForUnit(
   options: GenerateLevelsOptions = {}
 ) {
   const unit = getUnitById(bookId, unitId);
-  return unit ? resolveLevelsForUnit(unit, options) : [];
+  if (!unit) {
+    return [];
+  }
+
+  return vocabularyData.unitsById.has(unit.id)
+    ? resolveLevelsForUnit(unit, options)
+    : resolveLegacyLevelsForUnit(unit, options);
 }
 
 export function getLevelsForBook(
   bookId: string,
   options: GenerateLevelsOptions = {}
 ) {
-  return getUnitsForBook(bookId).flatMap((unit) => resolveLevelsForUnit(unit, options));
+  return getUnitsForBook(bookId).flatMap((unit) =>
+    vocabularyData.unitsById.has(unit.id)
+      ? resolveLevelsForUnit(unit, options)
+      : resolveLegacyLevelsForUnit(unit, options)
+  );
 }
 
 export function getResolvedLevels(options: GenerateLevelsOptions = {}) {
@@ -426,7 +1004,11 @@ export function getUnitProgress(
   progressByWordId: Record<string, WordLearningProgress> = {}
 ): UnitProgress {
   const unit = getUnitByGlobalId(unitId);
-  const unitLevels = unit ? resolveLevelsForUnit(unit) : [];
+  const unitLevels = unit
+    ? vocabularyData.unitsById.has(unit.id)
+      ? resolveLevelsForUnit(unit)
+      : resolveLegacyLevelsForUnit(unit)
+    : [];
   const levelIds = unitLevels.map((level) => level.id);
   const totalWords = unit?.wordIds.length ?? 0;
   const foundWords = getFoundWordCount(levelIds, progressByLevelId);

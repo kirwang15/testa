@@ -5,6 +5,7 @@ import {
   Coins,
   Gem,
   Lightbulb,
+  ShieldAlert,
   Sparkles,
   Trophy
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { CrosswordGrid } from "@/components/CrosswordGrid";
 import { CompletionActions } from "@/components/CompletionActions";
 import { FeedbackBanner, type FeedbackType } from "@/components/FeedbackBanner";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { LetterWheel } from "@/components/LetterWheel";
 import { WordSlots } from "@/components/WordSlots";
 import {
@@ -24,16 +26,58 @@ import {
   scoreLevelAttempt
 } from "@/lib/game";
 import { getHintAction } from "@/lib/hint-stage";
-import { getNextLevel, isLevelAheadOfRecommendation } from "@/lib/levelLoader";
+import {
+  getAllLevels,
+  getLevelById
+} from "@/lib/curriculum-index";
+import {
+  getDifficultyTranslationKey,
+  getLevelPosition
+} from "@/lib/curriculum-presentation";
+import {
+  canAccessLevel,
+  getNextEligibleLevel,
+  isLevelAheadOfEligibleRecommendation
+} from "@/lib/content-access";
+import {
+  getRuntimeVocabularyWordById,
+  loadLevelRuntimeBundle,
+  toRuntimeLevelId
+} from "@/lib/content-runtime";
 import { getLevelScopedAttemptProgress } from "@/lib/level-session";
 import { isSpeechRequestCurrent } from "@/lib/speech-request";
 import { sanitizeLevelPresentationText } from "@/lib/word-card-presentation";
 import { speakEnglishWord } from "@/lib/speech";
-import { useGameStore } from "@/store/gameStore";
-import { getWordById } from "@/src/lib/vocabulary-loader";
-import type { CellKey, Level, LevelProgress } from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import {
+  selectActiveGameProgress,
+  selectActiveProfile,
+  selectIsReadOnly,
+  useGameStore
+} from "@/store/gameStore";
+import {
+  addCrosswordDraftLetter,
+  createEmptyCrosswordDraft,
+  getCrosswordDraftView,
+  reconcileCrosswordDraft,
+  removeLastCrosswordDraftLetter,
+  resolveActiveClue
+} from "@/src/lib/crossword-session";
+import type {
+  CellKey,
+  Level,
+  LevelProgress,
+  ProfileActionContext
+} from "@/types/game";
+
+let levelActionSessionSequence = 0;
 
 type LevelGameProps = {
+  levelId: string;
+  contentVersion: string;
+};
+
+type ResolvedLevelGameProps = {
   level: Level;
 };
 
@@ -44,33 +88,191 @@ type FeedbackState = {
   description?: string;
 };
 
-export function LevelGame({ level }: LevelGameProps) {
-  const coins = useGameStore((state) => state.coins);
+export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
+  const { t } = useI18n();
+  const activeProfile = useGameStore(selectActiveProfile);
   const hasHydrated = useGameStore((state) => state.hasHydrated);
-  const allLevelProgress = useGameStore((state) => state.levels);
-  const wordProgressById = useGameStore((state) => state.words);
-  const savedProgress = useGameStore((state) => state.levels[level.id]);
+  const runtimeLevelId = toRuntimeLevelId(levelId);
+  const levelSummary = getLevelById(runtimeLevelId);
+  const indexBlocked = Boolean(
+    hasHydrated && levelSummary && !canAccessLevel(activeProfile, levelSummary)
+  );
+  const [runtimeBlocked, setRuntimeBlocked] = useState(false);
+  const blocked = indexBlocked || runtimeBlocked;
+  const [level, setLevel] = useState<Level>();
+  const [loadError, setLoadError] = useState(false);
+  const [retrySequence, setRetrySequence] = useState(0);
+
+  useEffect(() => {
+    setLevel(undefined);
+    setLoadError(false);
+    setRuntimeBlocked(false);
+    if (!hasHydrated || indexBlocked) return;
+    const controller = new AbortController();
+    let current = true;
+    loadLevelRuntimeBundle(levelId, contentVersion, controller.signal)
+      .then((bundle) => {
+        if (current && !controller.signal.aborted) {
+          if (
+            !canAccessLevel(activeProfile, {
+              bookId: bundle.level.bookId,
+              rating: bundle.rating
+            })
+          ) {
+            setRuntimeBlocked(true);
+          } else if (bundle.level.id === runtimeLevelId) {
+            setLevel(bundle.level);
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (
+          current &&
+          !controller.signal.aborted &&
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
+          setLoadError(true);
+        }
+      });
+    return () => {
+      current = false;
+      controller.abort();
+    };
+  }, [
+    activeProfile.ageBand,
+    activeProfile.contentAccessLevel,
+    contentVersion,
+    hasHydrated,
+    indexBlocked,
+    levelId,
+    retrySequence,
+    runtimeLevelId
+  ]);
+
+  if (blocked) {
+    return (
+      <main className="game-stage flex min-h-screen items-center justify-center px-5 text-white">
+        <section className="w-full max-w-lg rounded-2xl border border-amber-100/25 bg-black/55 p-6 text-center shadow-2xl">
+          <ShieldAlert className="mx-auto h-10 w-10 text-amber-200" aria-hidden="true" />
+          <h1 className="mt-3 text-2xl font-black">{t("game.contentBlockedTitle")}</h1>
+          <p className="mt-2 text-sm font-semibold text-amber-50/80">
+            {t("game.contentBlockedDescription")}
+          </p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <Link href="/map" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-amber-100 px-4 py-2 font-black text-[#301006]">
+              {t("nav.map")}
+            </Link>
+            <Link href="/settings" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-black/30 px-4 py-2 font-black">
+              {t("nav.settings")}
+            </Link>
+            <Link href="/parent" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-black/30 px-4 py-2 font-black">
+              {t("nav.parent")}
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <main className="game-stage flex min-h-screen items-center justify-center px-5 text-white">
+        <section className="w-full max-w-md rounded-2xl border border-amber-100/20 bg-black/35 p-6 text-center">
+          <h1 className="text-2xl font-black">{t("game.loadErrorTitle")}</h1>
+          <p className="mt-2 text-sm font-semibold text-amber-50/80">
+            {t("game.loadErrorDescription")}
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setRetrySequence((value) => value + 1)}
+              className="focus-ring min-h-11 rounded-xl border border-amber-100/30 bg-amber-100 px-4 py-2 font-black text-[#301006]"
+            >
+              {t("game.retry")}
+            </button>
+            <Link
+              href="/map"
+              className="focus-ring inline-flex min-h-11 items-center rounded-xl border border-amber-100/30 bg-black/30 px-4 py-2 font-black"
+            >
+              {t("nav.backMap")}
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!level || level.id !== runtimeLevelId) {
+    return (
+      <main
+        className="game-stage flex min-h-screen items-center justify-center text-white"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        <div className="flex flex-col items-center gap-3 px-6 text-center">
+          <div
+            className="h-12 w-12 animate-spin rounded-full border-4 border-amber-100/30 border-t-amber-100"
+            aria-hidden="true"
+          />
+          <p className="font-black text-amber-50">{t("game.loading")}</p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <ResolvedLevelGame
+      key={`${contentVersion}:${runtimeLevelId}`}
+      level={level}
+    />
+  );
+}
+
+function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
+  const { t } = useI18n();
+  const activeProfile = useGameStore(selectActiveProfile);
+  const activeProgress = useGameStore(selectActiveGameProgress);
+  const activeProfileId = activeProfile.id;
+  const { coins, levels: allLevelProgress, words: wordProgressById } = activeProgress;
+  const hasHydrated = useGameStore((state) => state.hasHydrated);
+  const isReadOnly = useGameStore(selectIsReadOnly);
+  const beginActionSession = useGameStore((state) => state.beginActionSession);
+  const endActionSession = useGameStore((state) => state.endActionSession);
+  const savedProgress = activeProgress.levels[level.id];
   const submitWord = useGameStore((state) => state.submitWord);
   const setCurrentLevel = useGameStore((state) => state.setCurrentLevel);
   const restartLevelAttempt = useGameStore((state) => state.restartLevelAttempt);
   const toggleFavorite = useGameStore((state) => state.toggleFavorite);
+  const updatePreferences = useGameStore((state) => state.updatePreferences);
   const useHint = useGameStore((state) => state.useHint);
   const confirmPronunciationHint = useGameStore(
     (state) => state.confirmPronunciationHint
   );
   const [attemptProgress, setAttemptProgress] = useState<LevelProgress>();
   const [sessionLevelId, setSessionLevelId] = useState(level.id);
-  const sessionIsCurrent = sessionLevelId === level.id;
-  const progress =
-    getLevelScopedAttemptProgress(sessionLevelId, level.id, attemptProgress) ??
-    savedProgress ??
-    createEmptyLevelProgress();
-  const levelTitle = level.title ?? `Level ${level.id}`;
-  const [selectedIndexes, setSelectedIndexes] = useState<number[]>([]);
+  const [sessionProfileId, setSessionProfileId] = useState(activeProfileId);
+  const sessionIsCurrent =
+    sessionLevelId === level.id && sessionProfileId === activeProfileId;
+  const progress = sessionIsCurrent
+    ? getLevelScopedAttemptProgress(sessionLevelId, level.id, attemptProgress) ??
+      savedProgress ??
+      createEmptyLevelProgress()
+    : savedProgress ?? createEmptyLevelProgress();
+  const levelPosition = getLevelPosition(level);
+  const levelTitle = t("level.displayTitle", {
+    book: levelPosition.book,
+    level: levelPosition.level ?? 1
+  });
+  const [crosswordDraft, setCrosswordDraft] = useState(() =>
+    createEmptyCrosswordDraft(level.targetWords[0]?.id)
+  );
+  const [selectedWordId, setSelectedWordId] = useState<string | undefined>(
+    level.targetWords[0]?.id
+  );
   const [feedback, setFeedback] = useState<FeedbackState>({
     id: 0,
     type: "neutral",
-    title: "Ready"
+    title: t("game.ready")
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHinting, setIsHinting] = useState(false);
@@ -83,41 +285,76 @@ export function LevelGame({ level }: LevelGameProps) {
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const speechRequestTokenRef = useRef(0);
   const mountedRef = useRef(true);
-  const currentLevelIdRef = useRef(level.id);
-  const activeSelectedIndexes = sessionIsCurrent ? selectedIndexes : [];
-  const currentWord = activeSelectedIndexes
-    .map((index) => level.letters[index])
-    .join("");
-  const isJumpAheadLevel = isLevelAheadOfRecommendation(level.id, allLevelProgress);
-  const nextLevel = getNextLevel(level.id);
-  const hintTarget = level.targetWords.find(
-    (word) => !progress.foundWords.includes(word.id)
+  const currentLevelIdRef = useRef(`${activeProfileId}:${level.id}`);
+  const actionSessionRef = useRef<ProfileActionContext | null>(null);
+  const isJumpAheadLevel = isLevelAheadOfEligibleRecommendation(
+    getAllLevels(),
+    level.id,
+    allLevelProgress,
+    activeProfile
   );
-  const hintTargetIndex = hintTarget
-    ? level.targetWords.findIndex((word) => word.id === hintTarget.id)
-    : -1;
+  const nextLevel = getNextEligibleLevel(getAllLevels(), level.id, activeProfile);
+  const activeClue = resolveActiveClue(level, progress, selectedWordId);
+  const effectiveDraft = reconcileCrosswordDraft(
+    level,
+    progress,
+    crosswordDraft,
+    activeClue?.id
+  );
+  const draftView = getCrosswordDraftView(
+    level,
+    progress,
+    effectiveDraft,
+    activeClue?.id
+  );
+  const activeSelectedIndexes = sessionIsCurrent
+    ? draftView.selectedIndexes
+    : [];
+  const currentWord = sessionIsCurrent ? draftView.displayWord : "";
   const hintStage = {
-    wordId: hintTarget?.id ?? "",
-    interactions: hintTarget ? progress.hintStages[hintTarget.id] ?? 0 : 0
+    wordId: activeClue?.id ?? "",
+    interactions: activeClue ? progress.hintStages[activeClue.id] ?? 0 : 0
   };
-  const hintFirstCell = hintTarget
-    ? buildGrid(level)[getCellKey(hintTarget.start.row, hintTarget.start.col)]
+  const hintFirstCell = activeClue
+    ? buildGrid(level)[getCellKey(activeClue.start.row, activeClue.start.col)]
     : undefined;
   const firstPositionVisible = hintFirstCell
     ? isCellVisible(hintFirstCell, progress)
     : false;
-  const hintAction = hintTarget
-    ? getHintAction(hintStage, hintTarget.id, firstPositionVisible)
+  const hintAction = activeClue
+    ? getHintAction(hintStage, activeClue.id, firstPositionVisible)
     : undefined;
   const currentHintTargetIdRef = useRef<string | undefined>(undefined);
-  currentLevelIdRef.current = level.id;
-  currentHintTargetIdRef.current = hintTarget?.id;
+  currentLevelIdRef.current = `${activeProfileId}:${level.id}`;
+  currentHintTargetIdRef.current = activeClue?.id;
   const safeText = (text: string) =>
     sanitizeLevelPresentationText(level, progress, text) ?? "";
 
   useEffect(() => {
     setCurrentLevel(level.id);
-  }, [level.id, setCurrentLevel]);
+  }, [activeProfileId, level.id, setCurrentLevel]);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+
+    levelActionSessionSequence += 1;
+    const context: ProfileActionContext = {
+      profileId: activeProfileId,
+      levelId: level.id,
+      sessionId: `level:${activeProfileId}:${level.id}:${levelActionSessionSequence}`
+    };
+    actionSessionRef.current = context;
+    beginActionSession(context);
+
+    return () => {
+      endActionSession(context);
+      if (actionSessionRef.current === context) {
+        actionSessionRef.current = null;
+      }
+    };
+  }, [activeProfileId, beginActionSession, endActionSession, hasHydrated, level.id]);
 
   useEffect(() => {
     if (!hasHydrated) {
@@ -130,15 +367,18 @@ export function LevelGame({ level }: LevelGameProps) {
         : savedProgress ?? createEmptyLevelProgress()
     );
     setSessionLevelId(level.id);
-    setSelectedIndexes([]);
+    setSessionProfileId(activeProfileId);
+    setCrosswordDraft(createEmptyCrosswordDraft(level.targetWords[0]?.id));
+    setSelectedWordId(level.targetWords[0]?.id);
     setRecentWordId(undefined);
     setRecentHintCellKey(undefined);
-    setFeedback({ id: 0, type: "neutral", title: "Ready" });
+    speechRequestTokenRef.current += 1;
+    setFeedback({ id: 0, type: "neutral", title: t("game.ready") });
     submitLockedRef.current = false;
     hintLockedRef.current = false;
     setIsSubmitting(false);
     setIsHinting(false);
-  }, [hasHydrated, level.id]);
+  }, [activeProfileId, hasHydrated, level.id]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -199,47 +439,92 @@ export function LevelGame({ level }: LevelGameProps) {
   const chooseLetter = (index: number) => {
     if (
       progress.completed ||
+      isReadOnly ||
       !sessionIsCurrent ||
       isSubmitting ||
       submitLockedRef.current ||
-      selectedIndexes.includes(index)
+      activeSelectedIndexes.includes(index) ||
+      !activeClue ||
+      draftView.complete
     ) {
       return;
     }
 
-    setSelectedIndexes((current) => [...current, index]);
+    setCrosswordDraft((current) =>
+      addCrosswordDraftLetter(
+        level,
+        progress,
+        current,
+        activeClue.id,
+        level.letters[index] ?? "",
+        index
+      )
+    );
   };
 
   const clearWord = () => {
-    setSelectedIndexes([]);
-    showFeedback("neutral", "Ready");
+    setCrosswordDraft(createEmptyCrosswordDraft(activeClue?.id));
+    showFeedback("neutral", t("game.ready"));
   };
 
   const backspace = () => {
-    setSelectedIndexes((current) => current.slice(0, -1));
+    setCrosswordDraft((current) =>
+      removeLastCrosswordDraftLetter(
+        level,
+        progress,
+        current,
+        activeClue?.id
+      )
+    );
+  };
+
+  const selectClue = (wordId: string) => {
+    if (progress.foundWords.includes(wordId)) {
+      return;
+    }
+
+    setSelectedWordId(wordId);
+    setCrosswordDraft(createEmptyCrosswordDraft(wordId));
+    const clueIndex = level.targetWords.findIndex((word) => word.id === wordId);
+    showFeedback(
+      "neutral",
+      t("game.clue", { number: Math.max(0, clueIndex) + 1 })
+    );
   };
 
   const submitCurrentWord = () => {
     if (
       progress.completed ||
+      isReadOnly ||
       !sessionIsCurrent ||
       isSubmitting ||
       submitLockedRef.current ||
-      currentWord.length === 0
+      !draftView.complete ||
+      !activeClue
     ) {
       return;
     }
 
     lockSubmitBriefly();
-    const submission = submitWord(level, currentWord, progress);
+    const submission = submitWord(
+      level,
+      draftView.submission,
+      progress,
+      activeClue.id
+    );
     const result = submission.result;
     setAttemptProgress(submission.attemptProgress);
-    setSelectedIndexes([]);
+    setCrosswordDraft(createEmptyCrosswordDraft(activeClue.id));
+
+    if (result.status === "read-only") {
+      showFeedback("duplicate", t("storage.unsupported"));
+      return;
+    }
 
     if (result.status === "correct") {
       speechRequestTokenRef.current += 1;
       setRecentWordId(result.word.id);
-      showFeedback("correct", `${result.word.word} found.`, "The grid filled it in.");
+      showFeedback("correct", t("game.wordFound"), t("game.gridFilled"));
       return;
     }
 
@@ -247,14 +532,17 @@ export function LevelGame({ level }: LevelGameProps) {
       speechRequestTokenRef.current += 1;
       setRecentWordId(result.word.id);
       const rewardMessage = result.reward === 0
-        ? "Your best score is saved; replay rewards are not duplicated."
+        ? t("game.bestSaved")
         : result.bonusReward > 0
-          ? `+${result.baseReward} coins, +${result.bonusReward} completion bonus.`
-          : `+${result.reward} coins.`;
+          ? t("game.rewardBonus", {
+              base: result.baseReward,
+              bonus: result.bonusReward
+            })
+          : t("game.rewardCoins", { count: result.reward });
       showFeedback(
         "complete",
-        "Level complete.",
-        `Every word is filled. ${rewardMessage}`
+        t("game.levelComplete"),
+        `${t("game.everyWordFilled")} ${rewardMessage}`
       );
       return;
     }
@@ -262,22 +550,23 @@ export function LevelGame({ level }: LevelGameProps) {
     if (result.status === "already-found") {
       showFeedback(
         "duplicate",
-        `${result.attempt} is already found.`,
-        "That word is already on the board."
+        t("game.alreadyFound"),
+        t("game.alreadyBoard")
       );
       return;
     }
 
     showFeedback(
       "wrong",
-      `${result.attempt || "That"} is not in this puzzle.`,
-      "Try a different letter order."
+      t("game.notPuzzle"),
+      t("game.tryOrder")
     );
   };
 
   const revealHint = () => {
     if (
       progress.completed ||
+      isReadOnly ||
       !sessionIsCurrent ||
       isHinting ||
       hintLockedRef.current
@@ -286,20 +575,20 @@ export function LevelGame({ level }: LevelGameProps) {
     }
 
     lockHintBriefly();
-    if (!hintTarget || !hintAction) {
-      showFeedback("duplicate", "No clue needs help.", "The board is already clear.");
+    if (!activeClue || !hintAction) {
+      showFeedback("duplicate", t("game.noClue"), t("game.boardClear"));
       return;
     }
 
     if (hintAction === "pronunciation") {
-      const vocabulary = hintTarget.vocabularyWordId
-        ? getWordById(hintTarget.vocabularyWordId)
+      const vocabulary = activeClue.vocabularyWordId
+        ? getRuntimeVocabularyWordById(activeClue.vocabularyWordId)
         : undefined;
       speechRequestTokenRef.current += 1;
       const request = {
         token: speechRequestTokenRef.current,
-        scopeId: level.id,
-        itemId: hintTarget.id
+        scopeId: `${activeProfileId}:${level.id}`,
+        itemId: activeClue.id
       };
       let settled = false;
       const requestIsCurrent = () =>
@@ -311,12 +600,13 @@ export function LevelGame({ level }: LevelGameProps) {
           mountedRef.current
         );
       const commitHint = (title: string, description: string) => {
-        if (settled || !requestIsCurrent()) {
+        const actionContext = actionSessionRef.current;
+        if (settled || !requestIsCurrent() || !actionContext) {
           return;
         }
         settled = true;
         const pronunciation = confirmPronunciationHint(
-          request.scopeId,
+          actionContext,
           request.itemId
         );
         if (pronunciation.status !== "applied") {
@@ -331,71 +621,143 @@ export function LevelGame({ level }: LevelGameProps) {
         }
         if (vocabulary?.phonetic) {
           commitHint(
-            "Pronunciation fallback shown.",
-            `Pronunciation: ${vocabulary.phonetic}. The next clue step reveals a letter.`
+            t("game.pronunciationFallback"),
+            `${vocabulary.phonetic}. ${t("game.pronunciationNext")}`
           );
           return;
         }
         settled = true;
         showFeedback(
           "duplicate",
-          "Pronunciation is unavailable.",
-          "No clue was charged. Try again or reveal a letter later."
+          t("game.pronunciationUnavailable"),
+          t("game.noClueCharged")
         );
       };
-      speakEnglishWord(hintTarget.word, undefined, {
+      speakEnglishWord(activeClue.word, undefined, {
         onStarted: () =>
           commitHint(
-            "Pronunciation played.",
-            "The next clue step reveals a letter."
+            t("game.pronunciationPlayed"),
+            t("game.pronunciationNext")
           ),
         onFailed: showFallback
       });
       return;
     }
 
-    const hintUsage = useHint(level, progress, hintTarget.id);
+    const hintUsage = useHint(level, progress, activeClue.id);
     const result = hintUsage.result;
     setAttemptProgress(hintUsage.attemptProgress);
+
+    if (result.status === "read-only") {
+      showFeedback("duplicate", t("storage.unsupported"));
+      return;
+    }
 
     if (result.status === "revealed") {
       setRecentHintCellKey(result.cellKey);
       showFeedback(
         "hint",
         hintAction === "first-letter"
-          ? `First letter revealed: ${result.letter}.`
-          : `Another position revealed: ${result.letter}.`,
-        "Clue steps affect stars, never your coin balance."
+          ? t("game.firstRevealed", { letter: result.letter })
+          : t("game.positionRevealed", { letter: result.letter }),
+        t("game.hintStars")
       );
       return;
     }
 
-    showFeedback("duplicate", "No hidden letters left.", "The board is already clear.");
+    showFeedback("duplicate", t("game.noHidden"), t("game.boardClear"));
   };
 
   const replayLevel = () => {
+    if (isReadOnly) return;
     const historicalProgress =
-      useGameStore.getState().levels[level.id] ?? progress;
+      selectActiveGameProgress(useGameStore.getState()).levels[level.id] ?? progress;
     setAttemptProgress(createReplayLevelProgress(historicalProgress));
     restartLevelAttempt(level.id);
-    setSelectedIndexes([]);
+    setCrosswordDraft(createEmptyCrosswordDraft(level.targetWords[0]?.id));
+    setSelectedWordId(level.targetWords[0]?.id);
     setRecentWordId(undefined);
     setRecentHintCellKey(undefined);
-    showFeedback("neutral", "Fresh attempt ready.", "Your best result is preserved.");
+    showFeedback("neutral", t("game.freshAttempt"), t("game.bestPreserved"));
   };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        progress.completed ||
+        isReadOnly ||
+        !sessionIsCurrent ||
+        isSubmitting ||
+        !activeClue ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitCurrentWord();
+        return;
+      }
+
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        backspace();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearWord();
+        return;
+      }
+
+      const letter = event.key.toUpperCase();
+      if (!/^[A-Z]$/.test(letter)) {
+        return;
+      }
+
+      const nextIndex = level.letters.findIndex(
+        (candidate, index) =>
+          candidate === letter && !activeSelectedIndexes.includes(index)
+      );
+      if (nextIndex >= 0) {
+        event.preventDefault();
+        chooseLetter(nextIndex);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    activeClue,
+    isSubmitting,
+    isReadOnly,
+    level.letters,
+    progress.completed,
+    activeSelectedIndexes,
+    sessionIsCurrent
+  ]);
 
   return (
     <main className="game-stage min-h-screen overflow-hidden text-white">
-      <div className="game-table-surface" aria-hidden="true" />
-      <div className="game-corner game-corner-left" aria-hidden="true" />
-      <div className="game-corner game-corner-right" aria-hidden="true" />
-
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-3 py-3 sm:px-5 sm:py-5 lg:px-8">
         <header className="flex items-start justify-between gap-3">
           <Link
-            href="/"
+            href="/map"
             className="game-icon-button focus-ring"
-            aria-label={safeText("Back to levels")}
+            aria-label={safeText(t("nav.backMap"))}
           >
             <ArrowLeft className="h-5 w-5" aria-hidden="true" />
           </Link>
@@ -405,7 +767,7 @@ export function LevelGame({ level }: LevelGameProps) {
               <Sparkles className="h-4 w-4 shrink-0 text-sun" aria-hidden="true" />
               <div className="min-w-0">
                 <p className="truncate text-xs font-black uppercase tracking-[0.08em] text-amber-100/75">
-                  {safeText(level.difficulty ?? "level")}
+                  {safeText(t(getDifficultyTranslationKey(level.difficulty)))}
                 </p>
                 <h1 className="truncate text-sm font-black text-white sm:text-base">
                   {safeText(levelTitle)}
@@ -415,19 +777,23 @@ export function LevelGame({ level }: LevelGameProps) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <div className="game-coin-hud" aria-label={safeText(`${coins} coins`)}>
+            <LanguageSwitcher inverse />
+            <div className="game-coin-hud" aria-label={safeText(t("game.coinsLabel", { count: coins }))}>
               <Gem className="h-5 w-5 text-fuchsia-200" aria-hidden="true" />
               <span>{coins}</span>
             </div>
           </div>
         </header>
 
-        <section className="grid flex-1 gap-5 py-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-start lg:py-5">
-          <div className="flex min-h-full flex-col items-center justify-center gap-3 sm:gap-4">
+        <section className="grid flex-1 gap-2 py-2 sm:gap-3 sm:py-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-start lg:gap-5 lg:py-5">
+          <div className="order-2 flex min-h-full flex-col items-center justify-start gap-2 sm:gap-4 lg:order-1 lg:justify-center">
             <div className="flex w-full max-w-[760px] items-center justify-center">
               <CrosswordGrid
                 level={level}
                 progress={progress}
+                title={levelTitle}
+                activeWordId={activeClue?.id}
+                draftLetters={draftView.cellLetters}
                 recentHintCellKey={sessionIsCurrent ? recentHintCellKey : undefined}
                 recentWordId={sessionIsCurrent ? recentWordId : undefined}
                 sanitizeText={safeText}
@@ -439,14 +805,14 @@ export function LevelGame({ level }: LevelGameProps) {
                 <button
                   type="button"
                   onClick={revealHint}
-                  disabled={progress.completed || !sessionIsCurrent || isHinting}
+                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting}
                   className="game-orb-button focus-ring"
                   aria-label={safeText(
                     hintAction === "pronunciation"
-                      ? "Play pronunciation clue"
+                      ? t("game.playPronunciation")
                       : hintAction === "first-letter"
-                        ? "Reveal first letter"
-                        : "Reveal another position"
+                        ? t("game.revealFirst")
+                        : t("game.revealPosition")
                   )}
                 >
                   <Lightbulb className="h-6 w-6" aria-hidden="true" />
@@ -455,10 +821,10 @@ export function LevelGame({ level }: LevelGameProps) {
                       ? "..."
                       : safeText(
                           hintAction === "pronunciation"
-                            ? "Listen"
+                            ? t("game.listen")
                             : hintAction === "first-letter"
-                              ? "Letter"
-                              : "Clue"
+                              ? t("game.letter")
+                              : t("game.meanings")
                         )}
                   </span>
                 </button>
@@ -469,7 +835,8 @@ export function LevelGame({ level }: LevelGameProps) {
                   letters={level.letters}
                   selectedIndexes={activeSelectedIndexes}
                   currentWord={currentWord}
-                  disabled={progress.completed || !sessionIsCurrent || isSubmitting}
+                  canSubmit={draftView.complete}
+                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isSubmitting}
                   isSubmitting={isSubmitting}
                   onBackspace={backspace}
                   onChoose={chooseLetter}
@@ -477,6 +844,15 @@ export function LevelGame({ level }: LevelGameProps) {
                   onSubmit={submitCurrentWord}
                   sanitizeText={safeText}
                 />
+                <p className="mt-2 text-center text-xs font-bold text-amber-100/75">
+                  {safeText(
+                    activeProfile.ageBand === "7-9"
+                      ? t("game.youngGuide")
+                      : activeProfile.ageBand === "10-12"
+                        ? t("game.middleGuide")
+                        : t("game.teenGuide")
+                  )}
+                </p>
               </div>
 
               <div className="order-3 flex justify-center md:flex-col md:items-center">
@@ -487,8 +863,11 @@ export function LevelGame({ level }: LevelGameProps) {
                   ].join(" ")}
                   aria-label={
                     progress.completed
-                      ? safeText("Level complete")
-                      : safeText(`${progress.foundWords.length} of ${level.targetWords.length} words found`)
+                      ? safeText(t("game.levelComplete"))
+                      : safeText(t("game.wordsFound", {
+                          done: progress.foundWords.length,
+                          total: level.targetWords.length
+                        }))
                   }
                 >
                   {progress.completed ? (
@@ -496,30 +875,30 @@ export function LevelGame({ level }: LevelGameProps) {
                   ) : (
                     <Coins className="h-6 w-6" aria-hidden="true" />
                   )}
-                  <span>{progress.completed ? safeText("Clear") : `${progress.foundWords.length}/${level.targetWords.length}`}</span>
+                  <span>{progress.completed ? safeText(t("common.clear")) : `${progress.foundWords.length}/${level.targetWords.length}`}</span>
                 </div>
               </div>
             </div>
 
             {isJumpAheadLevel ? (
               <p className="rounded-full border border-amber-100/25 bg-black/30 px-4 py-2 text-center text-xs font-black uppercase tracking-[0.12em] text-amber-100 shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
-                {safeText("Advanced vocabulary")}
+                {safeText(t("level.advanced"))}
               </p>
             ) : null}
           </div>
 
-          <aside className="w-full lg:sticky lg:top-5">
-            <div className="rounded-[1.5rem] border border-amber-100/15 bg-black/16 p-3 shadow-[0_20px_40px_rgba(0,0,0,0.26)] backdrop-blur-sm sm:p-4">
-              <div className="mb-4 flex items-start justify-between gap-3">
+          <aside className="order-1 w-full lg:order-2 lg:sticky lg:top-5">
+            <div className="rounded-[1.5rem] border border-amber-100/15 bg-black/16 p-2.5 shadow-[0_20px_40px_rgba(0,0,0,0.26)] backdrop-blur-sm sm:p-4">
+              <div className="mb-2 hidden items-start justify-between gap-3 lg:flex">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.12em] text-amber-200/80">
-                    {safeText("Meanings")}
+                    {safeText(t("game.meanings"))}
                   </p>
                   <h2 className="text-2xl font-black text-white">
-                    {safeText("English and Chinese")}
+                    {safeText(t("game.currentClue"))}
                   </h2>
                   <p className="mt-1 text-sm font-semibold text-amber-50/78">
-                    {safeText("Spell on the left, study each word on the right.")}
+                    {safeText(t("game.clueGuide"))}
                   </p>
                 </div>
                 <div className="rounded-full border border-amber-100/20 bg-black/30 px-3 py-1 text-sm font-black text-amber-50">
@@ -530,46 +909,56 @@ export function LevelGame({ level }: LevelGameProps) {
                 level={level}
                 progress={progress}
                 recentWordId={sessionIsCurrent ? recentWordId : undefined}
-                hintTargetId={hintTarget?.id}
-                hintTargetLabel={hintTargetIndex >= 0 ? `Clue ${hintTargetIndex + 1}` : undefined}
+                hintTargetId={activeClue?.id}
+                activeWordId={activeClue?.id}
+                clueLanguage={activeProfile.preferences.clueLanguage}
                 wordProgressById={wordProgressById}
+                onToggleClueLanguage={() =>
+                  updatePreferences({
+                    clueLanguage:
+                      activeProfile.preferences.clueLanguage === "en"
+                        ? "zh-CN"
+                        : "en"
+                  })
+                }
                 onToggleFavorite={toggleFavorite}
-                meaningDisplay="bilingual"
+                onSelectWord={selectClue}
+                mutationDisabled={isReadOnly}
               />
+              {sessionIsCurrent && (feedback.id > 0 || progress.completed) ? (
+                <div className="mt-3" data-testid="game-feedback-region">
+                  <FeedbackBanner
+                    key={progress.completed ? `complete-${feedback.id}` : feedback.id}
+                    type={
+                      progress.completed && feedback.type !== "complete"
+                        ? "complete"
+                        : feedback.type
+                    }
+                    title={
+                      progress.completed && feedback.type !== "complete"
+                        ? t("game.everyWordFilled")
+                        : feedback.title
+                    }
+                    description={
+                      progress.completed && feedback.type !== "complete"
+                        ? t("game.levelComplete")
+                        : feedback.description
+                    }
+                    sanitizeText={safeText}
+                  />
+                </div>
+              ) : null}
               {progress.completed ? (
                 <CompletionActions
                   stars={scoreLevelAttempt(progress)}
                   nextLevelId={nextLevel?.id}
                   onReplay={replayLevel}
+                  replayDisabled={isReadOnly}
                 />
               ) : null}
             </div>
           </aside>
         </section>
-
-        {sessionIsCurrent && (feedback.id > 0 || progress.completed) ? (
-          <div className="game-feedback-float">
-            <FeedbackBanner
-              key={progress.completed ? `complete-${feedback.id}` : feedback.id}
-              type={
-                progress.completed && feedback.type !== "complete"
-                  ? "complete"
-                  : feedback.type
-              }
-              title={
-                progress.completed && feedback.type !== "complete"
-                  ? "Every word is filled."
-                  : feedback.title
-              }
-              description={
-                progress.completed && feedback.type !== "complete"
-                  ? "Level complete."
-                  : feedback.description
-              }
-              sanitizeText={safeText}
-            />
-          </div>
-        ) : null}
       </div>
     </main>
   );

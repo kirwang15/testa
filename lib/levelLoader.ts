@@ -5,12 +5,14 @@ import {
   getBookProgress as getRegisteredBookProgress,
   getLevelsForBook,
   getLevelsForUnit,
+  getLegacyResolvedLevels,
   getResolvedLevels,
   getUnitByGlobalId,
   getUnitProgress as getRegisteredUnitProgress,
   getUnitsForBook,
   resolveLevelsForUnit
 } from "../src/lib/vocabulary-loader";
+import { LEGACY_CONTENT_PREFIX } from "../src/content/vocabulary";
 import type {
   BookProgress,
   GameProgress,
@@ -33,6 +35,7 @@ export type ProgressStatus = "completed" | "recommended" | "available";
 const books = getAllRegisteredBooks();
 const units = getAllRegisteredUnits();
 const primaryLevels: Level[] = getResolvedLevels({ mode: "learning" });
+const legacyLevels: Level[] = getLegacyResolvedLevels({ mode: "learning" });
 
 export function getAllBooks() {
   return books;
@@ -67,7 +70,13 @@ export function getUnitById(unitId: string) {
 }
 
 export function getLevelById(levelId: string) {
-  return primaryLevels.find((level) => level.id === levelId);
+  return (
+    primaryLevels.find((level) => level.id === levelId) ??
+    legacyLevels.find(
+      (level) =>
+        level.id === levelId || level.id === `${LEGACY_CONTENT_PREFIX}${levelId}`
+    )
+  );
 }
 
 export function levelExists(levelId: string) {

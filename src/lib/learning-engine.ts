@@ -17,7 +17,8 @@ export function createEmptyWordLearningProgress(wordId: string): WordLearningPro
     streak: 0,
     favorite: false,
     difficult: false,
-    reviewReasons: []
+    reviewReasons: [],
+    firstTryCorrectRecorded: false
   };
 }
 
@@ -26,7 +27,11 @@ export function createInitialLearningStatistics(): LearningStatistics {
     totalWordsLearned: 0,
     totalWordsMastered: 0,
     totalStudyMinutes: 0,
-    studyStreak: 0
+    studyStreak: 0,
+    firstTryCorrectWords: 0,
+    completedDueReviews: 0,
+    actualHintEvents: 0,
+    activeDateKeys: []
   };
 }
 
@@ -68,6 +73,23 @@ export function normalizeWordLearningProgress(
 
   return {
     wordId,
+    sourceBook:
+      value?.sourceBook === 1 ||
+      value?.sourceBook === 2 ||
+      value?.sourceBook === 3 ||
+      value?.sourceBook === 4
+        ? value.sourceBook
+        : undefined,
+    contentRating:
+      value?.contentRating === "all-ages" ||
+      value?.contentRating === "13-plus" ||
+      value?.contentRating === "parent-review"
+        ? value.contentRating
+        : undefined,
+    contentVersion:
+      typeof value?.contentVersion === "string" && value.contentVersion
+        ? value.contentVersion
+        : undefined,
     masteryLevel:
       typeof value?.masteryLevel === "number" && Number.isFinite(value.masteryLevel)
         ? Math.max(0, Math.min(MAX_MASTERY_LEVEL, Math.floor(value.masteryLevel)))
@@ -82,7 +104,8 @@ export function normalizeWordLearningProgress(
     difficult: value?.difficult === true,
     reviewReasons,
     lastReviewed: typeof value?.lastReviewed === "string" ? value.lastReviewed : undefined,
-    nextReview: typeof value?.nextReview === "string" ? value.nextReview : undefined
+    nextReview: typeof value?.nextReview === "string" ? value.nextReview : undefined,
+    firstTryCorrectRecorded: value?.firstTryCorrectRecorded === true
   };
 }
 
@@ -266,29 +289,91 @@ export function synchronizeLearningStatistics(
 export function recordStudySession(
   stats: LearningStatistics,
   studiedAt: string,
-  minutes = 0
+  minutes = 0,
+  localDateKey?: string
 ): LearningStatistics {
-  const studyDay = studiedAt.slice(0, 10);
-  const previousDay = stats.lastStudyDate;
+  return recordLearningActivity({
+    ...stats,
+    totalStudyMinutes: stats.totalStudyMinutes + Math.max(0, Math.floor(minutes)),
+  }, studiedAt, localDateKey);
+}
 
-  let studyStreak = stats.studyStreak;
+function isValidDateKey(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+}
 
-  if (previousDay !== studyDay) {
-    if (!previousDay) {
+export function recordLearningActivity(
+  stats: LearningStatistics,
+  occurredAt = new Date().toISOString(),
+  localDateKey = getLocalCalendarDateKey(new Date(occurredAt))
+): LearningStatistics {
+  const dateKey = localDateKey;
+  if (!isValidDateKey(dateKey)) return stats;
+  const activeDateKeys = Array.from(
+    new Set([...(stats.activeDateKeys ?? []).filter(isValidDateKey), dateKey])
+  ).sort();
+  let studyStreak = 0;
+  for (let index = activeDateKeys.length - 1; index >= 0; index -= 1) {
+    if (index === activeDateKeys.length - 1) {
       studyStreak = 1;
-    } else {
-      const gapInDays = Math.round(
-        (Date.parse(studyDay) - Date.parse(previousDay)) / (24 * 60 * 60 * 1000)
-      );
-
-      studyStreak = gapInDays === 1 ? stats.studyStreak + 1 : 1;
+      continue;
     }
+    const current = Date.parse(`${activeDateKeys[index]}T00:00:00.000Z`);
+    const next = Date.parse(`${activeDateKeys[index + 1]}T00:00:00.000Z`);
+    if (next - current !== 24 * 60 * 60 * 1000) break;
+    studyStreak += 1;
   }
 
   return {
     ...stats,
-    totalStudyMinutes: stats.totalStudyMinutes + Math.max(0, Math.floor(minutes)),
+    activeDateKeys,
     studyStreak,
-    lastStudyDate: studyDay
+    lastStudyDate: activeDateKeys.at(-1)
   };
+}
+
+export function getLocalCalendarDateKey(date = new Date()) {
+  if (!Number.isFinite(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function recordFirstTryCorrect(
+  stats: LearningStatistics,
+  occurredAt: string,
+  localDateKey?: string
+) {
+  return recordLearningActivity(
+    { ...stats, firstTryCorrectWords: (stats.firstTryCorrectWords ?? 0) + 1 },
+    occurredAt,
+    localDateKey
+  );
+}
+
+export function recordCompletedDueReview(
+  stats: LearningStatistics,
+  occurredAt: string,
+  localDateKey?: string
+) {
+  return recordLearningActivity(
+    { ...stats, completedDueReviews: (stats.completedDueReviews ?? 0) + 1 },
+    occurredAt,
+    localDateKey
+  );
+}
+
+export function recordActualHintEvent(
+  stats: LearningStatistics,
+  occurredAt: string,
+  localDateKey?: string
+) {
+  return recordLearningActivity(
+    { ...stats, actualHintEvents: (stats.actualHintEvents ?? 0) + 1 },
+    occurredAt,
+    localDateKey
+  );
 }

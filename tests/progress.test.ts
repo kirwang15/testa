@@ -17,6 +17,7 @@ import {
   restartLevelAttempt
 } from "../lib/progress";
 import {
+  buildGrid,
   createGameState,
   createReplayLevelProgress
 } from "../src/lib/game-engine";
@@ -26,6 +27,10 @@ import {
   serializePersistedGameProgress
 } from "../lib/storage";
 import { createEmptyLevelProgress } from "../src/lib/game-engine";
+import {
+  createInitialLearningStatistics,
+  recordLearningActivity
+} from "../src/lib/learning-engine";
 import type { GameProgress, Level } from "../types/game";
 
 function getTestLevel(levelId = "nce-1-u1-level-1"): Level {
@@ -40,9 +45,9 @@ describe("progress and persistence", () => {
 
     assert.equal(progress.coins, 100);
     assert.equal(progress.unlockedLevelIds.length > 1, true);
-    assert.equal(progress.currentLevelId, "nce-1-u1-level-1");
-    assert.equal(progress.currentBookId, "nce-1");
-    assert.equal(progress.currentUnitId, "nce-1-u1");
+    assert.equal(progress.currentLevelId, "nce-1997-b1-level-001");
+    assert.equal(progress.currentBookId, "nce-1997-b1");
+    assert.equal(progress.currentUnitId, "nce-1997-b1-u1");
   });
 
   test("keeps coins and tracks hint usage and difficult vocabulary", () => {
@@ -53,9 +58,14 @@ describe("progress and persistence", () => {
     assert.equal(result.status, "revealed");
     assert.equal(nextProgress.coins, createGameState(level, undefined, progress.coins).coins);
     assert.equal(nextProgress.levels[level.id]?.hintsUsed, 1);
-    assert.deepEqual(nextProgress.levels[level.id]?.revealedCells, ["0:0"]);
-    assert.equal(result.vocabularyWordId, "nce-1-u1-cat");
-    assert.equal(nextProgress.words["nce-1-u1-cat"]?.difficult, true);
+    assert.equal(result.status, "revealed");
+    if (result.status !== "revealed") {
+      assert.fail("Expected a revealed hint");
+    }
+    assert.deepEqual(nextProgress.levels[level.id]?.revealedCells, [result.cellKey]);
+    assert.equal(result.vocabularyWordId, "legacy:nce-1-u1-cat");
+    assert.equal(nextProgress.words["legacy:nce-1-u1-cat"]?.difficult, true);
+    assert.equal(nextProgress.studyStats.actualHintEvents, 1);
   });
 
   test("reveals a hint even when the coin balance is zero", () => {
@@ -80,10 +90,12 @@ describe("progress and persistence", () => {
     assert.deepEqual(result.attemptProgress.revealedCells, []);
     assert.equal(result.nextProgress.coins, progress.coins);
     assert.deepEqual(result.nextProgress.words, {});
+    assert.equal(result.nextProgress.studyStats.actualHintEvents, 1);
   });
 
   test("records vocabulary learning and study stats on level completion", () => {
-    const level = getTestLevel();
+    const level = getFirstLevel();
+    assert.ok(level);
     let progress = createInitialGameProgress();
 
     for (const word of level.targetWords) {
@@ -97,10 +109,35 @@ describe("progress and persistence", () => {
       progress.coins,
       100 + level.rewardCoins + (level.perfectBonusCoins ?? 0)
     );
-    assert.equal(progress.words["nce-1-u1-cat"]?.correctCount, 1);
+    const firstVocabularyWordId = level.targetWords[0]?.vocabularyWordId;
+    assert.ok(firstVocabularyWordId);
+    assert.equal(progress.words[firstVocabularyWordId]?.correctCount, 1);
     assert.equal(progress.studyStats.totalWordsLearned > 0, true);
-    assert.equal(progress.studyStats.totalStudyMinutes > 0, true);
-    assert.equal(getRecommendedLevel(progress.levels)?.id, "nce-1-u1-level-2");
+    assert.equal(progress.studyStats.totalStudyMinutes, 0);
+    assert.equal(progress.studyStats.firstTryCorrectWords, level.targetWords.length);
+    assert.equal(progress.studyStats.activeDateKeys?.length, 1);
+    assert.equal(getRecommendedLevel(progress.levels)?.id, "nce-1997-b1-level-002");
+  });
+
+  test("uses the explicit browser-local date key across a UTC+8 midnight", () => {
+    const stats = recordLearningActivity(
+      createInitialLearningStatistics(),
+      "2026-07-17T16:30:00.000Z",
+      "2026-07-18"
+    );
+    assert.deepEqual(stats.activeDateKeys, ["2026-07-18"]);
+    assert.equal(stats.lastStudyDate, "2026-07-18");
+  });
+
+  test("preserves migrated study minutes without adding estimated level time", () => {
+    const level = getFirstLevel();
+    assert.ok(level);
+    let progress = createInitialGameProgress();
+    progress.studyStats.totalStudyMinutes = 30;
+    for (const word of level.targetWords) {
+      progress = applyWordSubmission(progress, level, word.word).nextProgress;
+    }
+    assert.equal(progress.studyStats.totalStudyMinutes, 30);
   });
 
   test("records a related wrong word and always counts a failed attempt", () => {
@@ -110,8 +147,8 @@ describe("progress and persistence", () => {
 
     assert.equal(relatedFailure.result.status, "not-target");
     assert.equal(relatedFailure.nextProgress.levels[level.id]?.wrongAttempts, 1);
-    assert.equal(relatedFailure.nextProgress.words["nce-1-u1-cat"]?.wrongCount, 1);
-    assert.equal(relatedFailure.nextProgress.words["nce-1-u1-cat"]?.difficult, true);
+    assert.equal(relatedFailure.nextProgress.words["legacy:nce-1-u1-cat"]?.wrongCount, 1);
+    assert.equal(relatedFailure.nextProgress.words["legacy:nce-1-u1-cat"]?.difficult, true);
 
     const unrelatedFailure = applyWordSubmission(
       relatedFailure.nextProgress,
@@ -132,7 +169,7 @@ describe("progress and persistence", () => {
       "CT"
     );
 
-    assert.equal(uniqueFailure.nextProgress.words["nce-1-u1-cat"]?.wrongCount, 1);
+    assert.equal(uniqueFailure.nextProgress.words["legacy:nce-1-u1-cat"]?.wrongCount, 1);
 
     const ambiguousFailure = applyWordSubmission(
       createInitialGameProgress(),
@@ -281,6 +318,10 @@ describe("progress and persistence", () => {
     assert.equal(progress.levels[level.id]?.completedAt, historicalProgress.completedAt);
     assert.equal(progress.levels[level.id]?.attemptCount, 2);
     assert.equal(progress.levels[level.id]?.bestStars, 3);
+    assert.equal(
+      progress.studyStats.firstTryCorrectWords,
+      firstCompletion.studyStats.firstTryCorrectWords
+    );
   });
 
   test("persists an in-progress replay clue stage without reopening first-pass rewards", () => {
@@ -404,6 +445,7 @@ describe("progress and persistence", () => {
   });
 
   test("normalizes malformed persisted records on restore", () => {
+    const legacyLevel = getTestLevel();
     const restored = normalizeGameProgress({
       ...createInitialGameProgress(),
       coins: 75,
@@ -427,11 +469,16 @@ describe("progress and persistence", () => {
         totalWordsLearned: -2,
         totalWordsMastered: 1.5,
         totalStudyMinutes: 30.7,
-        studyStreak: -1
+        studyStreak: -1,
+        firstTryCorrectWords: -3,
+        completedDueReviews: Number.NaN,
+        actualHintEvents: 2.8,
+        activeDateKeys: ["bad", "2026-07-18", "2026-07-18", "2026-02-31"]
       }
     } as unknown as GameProgress);
 
-    assert.deepEqual(restored.levels["nce-1-u1-level-1"], {
+    assert.deepEqual(restored.levels[legacyLevel.id], {
+      layoutRevision: legacyLevel.layoutRevision,
       foundWords: [],
       revealedCells: [],
       hintedWordIds: [],
@@ -443,32 +490,43 @@ describe("progress and persistence", () => {
       bestStars: 0,
       attemptCount: 0
     });
-    assert.equal(restored.words["nce-1-u1-cat"]?.masteryLevel, 5);
-    assert.equal(restored.words["nce-1-u1-cat"]?.correctCount, 0);
+    assert.equal(restored.words["legacy:nce-1-u1-cat"]?.masteryLevel, 5);
+    assert.equal(restored.words["legacy:nce-1-u1-cat"]?.correctCount, 0);
     assert.equal(restored.studyStats.totalStudyMinutes, 30);
+    assert.equal(restored.studyStats.firstTryCorrectWords, 0);
+    assert.equal(restored.studyStats.completedDueReviews, 0);
+    assert.equal(restored.studyStats.actualHintEvents, 2);
+    assert.deepEqual(restored.studyStats.activeDateKeys, ["2026-07-18"]);
   });
 
   test("drops malformed persisted grid-cell keys instead of casting them", () => {
+    const level = getTestLevel();
+    const validCellKey = Object.keys(buildGrid(level))[0];
+    assert.ok(validCellKey);
     const restored = mergePersistedGameProgress({
       levels: {
         "nce-1-u1-level-1": {
-          revealedCells: ["0:0", "bad", "-1:2", "1.5:2"]
+          layoutRevision: level.layoutRevision,
+          revealedCells: [validCellKey, "bad", "-1:2", "1.5:2"]
         }
       }
     }, createInitialGameProgress());
 
-    assert.deepEqual(restored.levels["nce-1-u1-level-1"]?.revealedCells, ["0:0"]);
+    assert.deepEqual(restored.levels[level.id]?.revealedCells, [validCellKey]);
   });
 
   test("normalizes known levels against their grid and target ids", () => {
     const level = getTestLevel();
     const validTarget = level.targetWords[0];
+    const validCellKey = Object.keys(buildGrid(level))[0];
     assert.ok(validTarget);
+    assert.ok(validCellKey);
     const restored = mergePersistedGameProgress({
       levels: {
         [level.id]: {
+          layoutRevision: level.layoutRevision,
           foundWords: [validTarget.id, validTarget.id, "unknown-word"],
-          revealedCells: ["0:0", "0:0", "99:99"],
+          revealedCells: [validCellKey, validCellKey, "99:99"],
           hintedWordIds: [validTarget.id, validTarget.id, "unknown-word"],
           hintStages: {
             [validTarget.id]: 2,
@@ -482,11 +540,47 @@ describe("progress and persistence", () => {
     assert.ok(normalized);
 
     assert.deepEqual(normalized.foundWords, [validTarget.id]);
-    assert.deepEqual(normalized.revealedCells, ["0:0"]);
+    assert.deepEqual(normalized.revealedCells, [validCellKey]);
     assert.deepEqual(normalized.hintedWordIds, [validTarget.id]);
     assert.deepEqual(Reflect.get(normalized, "hintStages"), {
       [validTarget.id]: 2
     });
+  });
+
+  test("clears coordinate hints when a curriculum layout revision changes", () => {
+    const level = getFirstLevel();
+    assert.ok(level);
+    const cellKey = Object.keys(buildGrid(level))[0];
+    const target = level.targetWords[0];
+    assert.ok(cellKey);
+    assert.ok(target);
+    const restored = mergePersistedGameProgress(
+      {
+        coins: 77,
+        levels: {
+          [level.id]: {
+            layoutRevision: "old-layout",
+            foundWords: [],
+            revealedCells: [cellKey],
+            hintedWordIds: [target.id],
+            hintStages: { [target.id]: 3 },
+            hintsUsed: 3,
+            bestStars: 2
+          }
+        }
+      },
+      createInitialGameProgress()
+    );
+    const normalized = restored.levels[level.id];
+
+    assert.ok(normalized);
+    assert.equal(restored.coins, 77);
+    assert.equal(normalized.layoutRevision, level.layoutRevision);
+    assert.deepEqual(normalized.revealedCells, []);
+    assert.deepEqual(normalized.hintedWordIds, []);
+    assert.deepEqual(normalized.hintStages, {});
+    assert.equal(normalized.hintsUsed, 0);
+    assert.equal(normalized.bestStars, 2);
   });
 
   test("infers current review debt from a legacy difficult wrong record", () => {
@@ -502,7 +596,7 @@ describe("progress and persistence", () => {
     }, createInitialGameProgress());
 
     assert.deepEqual(
-      restored.words["nce-1-u1-cat"]?.reviewReasons,
+      restored.words["legacy:nce-1-u1-cat"]?.reviewReasons,
       ["wrong"]
     );
   });
@@ -598,6 +692,7 @@ describe("progress and persistence", () => {
 
   test("merges persisted progress safely before store hydration", () => {
     const fallback = createInitialGameProgress();
+    const legacyLevel = getTestLevel();
     const merged = mergePersistedGameProgress(
       {
         coins: 80,
@@ -620,7 +715,8 @@ describe("progress and persistence", () => {
     );
 
     assert.equal(merged.coins, 80);
-    assert.deepEqual(merged.levels["nce-1-u1-level-1"], {
+    assert.deepEqual(merged.levels[legacyLevel.id], {
+      layoutRevision: legacyLevel.layoutRevision,
       foundWords: [],
       revealedCells: [],
       hintedWordIds: [],
@@ -632,7 +728,7 @@ describe("progress and persistence", () => {
       bestStars: 0,
       attemptCount: 0
     });
-    assert.equal(merged.words["nce-1-u1-cat"]?.masteryLevel, 2);
+    assert.equal(merged.words["legacy:nce-1-u1-cat"]?.masteryLevel, 2);
     assert.deepEqual(merged.unlockedLevelIds, fallback.unlockedLevelIds);
     assert.equal(merged.currentLevelId, fallback.currentLevelId);
   });
@@ -646,11 +742,12 @@ describe("progress and persistence", () => {
 
     assert.equal(getLevelById("1"), undefined);
     assert.equal(restored.currentLevelId, firstLevel?.id);
-    assert.equal(restored.currentLevelId, "nce-1-u1-level-1");
+    assert.equal(restored.currentLevelId, "nce-1997-b1-level-001");
   });
 
   test("derives book and unit progress from saved level and word completion", () => {
-    const level = getTestLevel();
+    const level = getFirstLevel();
+    assert.ok(level);
     const levels = {
       [level.id]: {
         ...createGameState(level).progress,
@@ -661,9 +758,11 @@ describe("progress and persistence", () => {
         hintsUsed: 0
       }
     };
+    const firstVocabularyWordId = level.targetWords[0]?.vocabularyWordId;
+    assert.ok(firstVocabularyWordId);
     const words = {
-      "nce-1-u1-cat": {
-        wordId: "nce-1-u1-cat",
+      [firstVocabularyWordId]: {
+        wordId: firstVocabularyWordId,
         masteryLevel: 4,
         correctCount: 2,
         wrongCount: 0,
@@ -673,13 +772,13 @@ describe("progress and persistence", () => {
       }
     };
 
-    const bookProgress = getBookProgress("nce-1", levels, words);
-    const unitProgress = getUnitProgress("nce-1-u1", levels, words);
+    const bookProgress = getBookProgress("nce-1997-b1", levels, words);
+    const unitProgress = getUnitProgress("nce-1997-b1-u1", levels, words);
 
     assert.equal(bookProgress.completedLevels, 1);
-    assert.equal(bookProgress.totalLevels, 6);
+    assert.equal(bookProgress.totalLevels, 50);
     assert.equal(bookProgress.masteredWords, 1);
     assert.equal(unitProgress.completedLevels, 1);
-    assert.equal(unitProgress.totalLevels, 3);
+    assert.equal(unitProgress.totalLevels, 10);
   });
 });

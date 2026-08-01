@@ -1,0 +1,97 @@
+{
+  "contentVersion": "nce-1997-friend-trial-v2",
+  "policyVersion": "human-confirmed-sense-audit-v1",
+  "candidates": [
+    {
+      "spelling": "swing",
+      "wordId": "nce-1997-b2-swing",
+      "status": "resolved",
+      "checks": {
+        "present": true,
+        "partOfSpeech": true,
+        "clue": true,
+        "chinese": true,
+        "example": true
+      },
+      "current": {
+        "partOfSpeech": "verb",
+        "englishMeaning": "To turn quickly toward another direction",
+        "chineseMeaning": "转向",
+        "example": "The boat began to swing toward the harbour entrance."
+      }
+    },
+    {
+      "spelling": "cherish",
+      "wordId": "nce-1997-b3-cherish",
+      "status": "resolved",
+      "checks": {
+        "present": true,
+        "partOfSpeech": true,
+        "clue": true,
+        "chinese": true,
+        "example": true
+      },
+      "current": {
+        "partOfSpeech": "verb",
+        "englishMeaning": "To keep a hope or wish firmly in your mind",
+        "chineseMeaning": "期望，渴望",
+        "example": "Mia continued to cherish the hope of joining the team."
+      }
+    },
+    {
+      "spelling": "blur",
+      "wordId": "nce-1997-b4-blur",
+      "status": "resolved",
+      "checks": {
+        "present": true,
+        "partOfSpeech": true,
+        "clue": true,
+        "chinese": true,
+        "example": true
+      },
+      "current": {
+        "partOfSpeech": "verb",
+        "englishMeaning": "To make something out of focus or unclear",
+        "chineseMeaning": "使...模糊不清",
+        "example": "Rain can blur the view through the classroom window."
+      }
+    },
+    {
+      "spelling": "zip",
+      "wordId": "nce-1997-b1-zip",
+      "status": "resolved",
+      "checks": {
+        "present": true,
+        "partOfSpeech": true,
+        "clue": true,
+        "chinese": true,
+        "example": true
+      },
+      "current": {
+        "partOfSpeech": "noun",
+        "englishMeaning": "A fastener with teeth and a slider",
+        "chineseMeaning": "拉链",
+        "example": "The zip on Leo's school bag got stuck."
+      }
+    },
+    {
+      "spelling": "landlord",
+      "wordId": "nce-1997-b2-landlord",
+      "status": "resolved",
+      "checks": {
+        "present": true,
+        "partOfSpeech": true,
+        "clue": true,
+        "chinese": true,
+        "example": true
+      },
+      "current": {
+        "partOfSpeech": "noun",
+        "englishMeaning": "Person who owns or runs a pub or rented property",
+        "chineseMeaning": "店主",
+        "example": "The landlord welcomed everyone into the small village pub."
+      }
+    }
+  ],
+  "unresolved": 0
+}

@@ -6,6 +6,12 @@ import {
 } from "../lib/progress";
 import { createInitialGameProgress } from "../lib/progress";
 import { markWordCorrect, markWordWrong, setWordDifficult } from "../src/lib/learning-engine";
+import { getWordById } from "../src/lib/vocabulary-loader";
+import { registerRuntimeVocabularyWord } from "../lib/content-runtime";
+
+const legacyCat = getWordById("nce-1-u1-cat");
+assert.ok(legacyCat);
+registerRuntimeVocabularyWord(legacyCat);
 
 describe("review session", () => {
   test("keeps the answer hidden in the prompt until a correct spelling", () => {
@@ -32,7 +38,8 @@ describe("review session", () => {
     );
 
     assert.equal(failed.status, "wrong");
-    assert.equal(failed.nextProgress.words[wordId]?.difficult, true);
+    const canonicalWordId = "legacy:nce-1-u1-cat";
+    assert.equal(failed.nextProgress.words[canonicalWordId]?.difficult, true);
     const passed = applyReviewSubmission(
       failed.nextProgress,
       wordId,
@@ -40,8 +47,8 @@ describe("review session", () => {
     );
 
     assert.equal(passed.status, "correct");
-    assert.equal(passed.nextProgress.words[wordId]?.difficult, false);
-    assert.equal(passed.nextProgress.words[wordId]?.wrongCount, 2);
+    assert.equal(passed.nextProgress.words[canonicalWordId]?.difficult, false);
+    assert.equal(passed.nextProgress.words[canonicalWordId]?.wrongCount, 2);
   });
 
   test("resolves answers from authoritative content and rejects unknown ids", () => {
@@ -72,5 +79,37 @@ describe("review session", () => {
       wrongCount: 2,
       reviewReasons: ["wrong", "clue"]
     }), "Needs spelling practice · Used a clue");
+  });
+
+  test("counts a due review once and rejects double-submit inflation", () => {
+    const wordId = "nce-1-u1-cat";
+    const base = createInitialGameProgress();
+    const dueProgress = {
+      ...base,
+      words: {
+        [wordId]: {
+          ...markWordCorrect(
+            {
+              wordId,
+              masteryLevel: 1,
+              correctCount: 0,
+              wrongCount: 0,
+              streak: 0,
+              favorite: false,
+              difficult: true,
+              reviewReasons: ["clue" as const]
+            },
+            "2026-07-01T00:00:00.000Z"
+          ),
+          nextReview: "2026-07-02T00:00:00.000Z"
+        }
+      }
+    };
+    const first = applyReviewSubmission(dueProgress, wordId, "cat");
+    const second = applyReviewSubmission(first.nextProgress, wordId, "cat");
+
+    assert.equal(first.status, "correct");
+    assert.equal(first.nextProgress.studyStats.completedDueReviews, 1);
+    assert.equal(second.nextProgress.studyStats.completedDueReviews, 1);
   });
 });

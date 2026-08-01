@@ -11,6 +11,7 @@
     "content/**/*.ts",
     "lib/**/*.ts",
     "src/**/*.ts",
+    "store/**/*.ts",
     "tests/**/*.ts",
     "types/**/*.ts"
   ]

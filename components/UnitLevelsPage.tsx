@@ -3,37 +3,46 @@
 import Link from "next/link";
 import { CoinBar } from "@/components/CoinBar";
 import { GameLogo } from "@/components/GameLogo";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { LevelCard } from "@/components/LevelCard";
-import { WordMeaningToggle } from "@/components/WordMeaningToggle";
 import { createEmptyLevelProgress } from "@/lib/game";
 import {
-  getLevelStatus,
   getAllLevels,
   getUnitProgress,
-  isLevelAheadOfRecommendation
-} from "@/lib/levelLoader";
-import { buildSafeVocabularyPreviews } from "@/lib/word-card-presentation";
-import { getUnitWords } from "@/src/lib/vocabulary-loader";
-import { useGameStore } from "@/store/gameStore";
-import type { Level, VocabularyBook, VocabularyUnit } from "@/types/game";
+} from "@/lib/curriculum-index";
+import {
+  canAccessLevel,
+  getEligibleLevelStatus,
+  isLevelAheadOfEligibleRecommendation
+} from "@/lib/content-access";
+import { selectActiveGameProgress, selectActiveProfile, useGameStore } from "@/store/gameStore";
+import type {
+  CurriculumBookIndex,
+  CurriculumLevelIndex,
+  CurriculumUnitIndex
+} from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import {
+  getBookNumber,
+  getLessonRangeLabelValue,
+  getUnitNumber
+} from "@/lib/curriculum-presentation";
 
 type UnitLevelsPageProps = {
-  book: VocabularyBook;
-  unit: VocabularyUnit;
-  levels: Level[];
+  book: CurriculumBookIndex;
+  unit: CurriculumUnitIndex;
+  levels: CurriculumLevelIndex[];
 };
 
 export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
-  const coins = useGameStore((state) => state.coins);
-  const savedLevels = useGameStore((state) => state.levels);
-  const savedWords = useGameStore((state) => state.words);
+  const { t } = useI18n();
+  const bookNumber = getBookNumber(book.id);
+  const unitNumber = getUnitNumber(unit);
+  const lessonRange = getLessonRangeLabelValue(unit.lessonRange);
+  const activeProgress = useGameStore(selectActiveGameProgress);
+  const activeProfile = useGameStore(selectActiveProfile);
+  const { coins, levels: savedLevels, words: savedWords } = activeProgress;
   const unitProgress = getUnitProgress(unit.id, savedLevels, savedWords);
-  const unitWords = getUnitWords(book.id, unit.id);
-  const wordPreviews = buildSafeVocabularyPreviews(
-    unitWords.slice(0, 8),
-    getAllLevels(),
-    savedLevels
-  );
 
   return (
     <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
@@ -45,46 +54,33 @@ export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
                 href={`/books/${book.id}`}
                 className="focus-ring inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-paper px-4 py-2 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:bg-white"
               >
-                Back to units
+                {t("nav.backUnits")}
               </Link>
               <GameLogo />
               <div>
-                <p className="text-sm font-black uppercase text-mint">{book.title}</p>
-                <h1 className="mt-1 text-3xl font-black text-ink">{unit.title}</h1>
+                <p className="text-sm font-black uppercase text-mint">
+                  {t("book.displayTitle", { book: bookNumber })}
+                </p>
+                <h1 className="mt-1 text-3xl font-black text-ink">
+                  {t("unit.displayTitle", { unit: unitNumber })}
+                </h1>
                 <p className="mt-1 text-base font-bold text-coral">
-                  {unit.lessonRange ?? "Vocabulary practice"}
+                  {lessonRange
+                    ? t("unit.lessonSpan", { range: lessonRange })
+                    : t("unit.practice")}
                 </p>
               </div>
-              <div className="grid max-w-4xl gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {wordPreviews.map((word) => (
-                  <div
-                    key={word.id}
-                    className="rounded-lg border-2 border-ink bg-paper px-3 py-3"
-                  >
-                    <p className="text-sm font-black text-ink">{word.title}</p>
-                    {!word.safe ? (
-                      <p className="mt-1 text-xs font-bold text-ink/60">
-                        {word.length} letters · solve it to unlock
-                      </p>
-                    ) : null}
-                    <WordMeaningToggle
-                      className="mt-2 text-ink"
-                      wordLabel={word.wordLabel}
-                      englishMeaning={word.englishMeaning}
-                      chineseMeaning={word.chineseMeaning}
-                    />
-                  </div>
-                ))}
-              </div>
               <div className="flex flex-wrap gap-3 text-sm font-bold text-ink/75">
-                <span>{levels.length} playable levels</span>
-                <span>{unit.estimatedMinutes ?? 10} estimated minutes</span>
-                <span>{unitProgress.completedLevels}/{unitProgress.totalLevels} complete</span>
-                <span>{unitProgress.learnedWords} learned words</span>
-                <span>{unitProgress.completionPercent}% complete</span>
+                <span>{t("common.playableLevels", { count: levels.length })}</span>
+                <span>{t("common.levelsComplete", { done: unitProgress.completedLevels, total: unitProgress.totalLevels })}</span>
+                <span>{t("common.learnedWords", { count: unitProgress.learnedWords })}</span>
+                <span>{t("common.percentComplete", { count: unitProgress.completionPercent })}</span>
               </div>
             </div>
-            <CoinBar coins={coins} />
+            <div className="flex flex-wrap gap-3">
+              <LanguageSwitcher />
+              <CoinBar coins={coins} />
+            </div>
           </div>
         </header>
 
@@ -93,8 +89,19 @@ export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
             <LevelCard
               key={level.id}
               level={level}
-              status={getLevelStatus(level.id, savedLevels)}
-              isAdvanced={isLevelAheadOfRecommendation(level.id, savedLevels)}
+              status={getEligibleLevelStatus(
+                getAllLevels(),
+                level.id,
+                savedLevels,
+                activeProfile
+              )}
+              isAdvanced={isLevelAheadOfEligibleRecommendation(
+                getAllLevels(),
+                level.id,
+                savedLevels,
+                activeProfile
+              )}
+              locked={!canAccessLevel(activeProfile, level)}
               progress={savedLevels[level.id] ?? createEmptyLevelProgress()}
             />
           ))}

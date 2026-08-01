@@ -78,8 +78,9 @@ type HintGameResult =
 
 export type GameResult = SubmitWordGameResult | HintGameResult;
 
-export function createEmptyLevelProgress(): LevelProgress {
+export function createEmptyLevelProgress(layoutRevision?: string): LevelProgress {
   return {
+    ...(layoutRevision ? { layoutRevision } : {}),
     foundWords: [],
     revealedCells: [],
     hintedWordIds: [],
@@ -97,7 +98,7 @@ export function createReplayLevelProgress(progress: LevelProgress): LevelProgres
   const activeAttempt = progress.activeReplayAttempt;
 
   return {
-    ...createEmptyLevelProgress(),
+    ...createEmptyLevelProgress(progress.layoutRevision),
     ...(activeAttempt ?? {}),
     completedAt: progress.completedAt,
     bestStars: progress.bestStars,
@@ -191,6 +192,17 @@ export function buildGrid(level: Level): Record<CellKey, GridCell> {
         throw new Error(`Word ${word.id} conflicts at ${key}.`);
       }
 
+      if (
+        existingCell?.wordIds.some((wordId) =>
+          level.targetWords.some(
+            (targetWord) =>
+              targetWord.id === wordId && targetWord.direction === word.direction
+          )
+        )
+      ) {
+        throw new Error(`Word ${word.id} overlaps another word in the same direction at ${key}.`);
+      }
+
       grid[key] = {
         row: cell.row,
         col: cell.col,
@@ -256,12 +268,19 @@ export function applyWordSubmission(
   word: string,
   options?: {
     completedAt?: string;
+    targetWordId?: string;
   }
 ): SubmitWordGameResult {
   const attempt = normalizeWord(word);
   const targetWord = validateWord(state.level, attempt);
+  const selectedTarget = options?.targetWordId
+    ? state.level.targetWords.find((candidate) => candidate.id === options.targetWordId)
+    : undefined;
 
-  if (!targetWord) {
+  if (
+    !targetWord ||
+    (options?.targetWordId && (!selectedTarget || selectedTarget.id !== targetWord.id))
+  ) {
     return {
       action: "submit-word",
       status: "not-target",

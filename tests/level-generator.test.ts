@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { getUnitById, resolveLevelsForUnit } from "../lib/levelLoader";
 import {
+  createConnectedCrosswordLayout,
+  createCrosswordLayout,
   createLetterPool,
   generateLevelFromWords,
   generateLevelsFromBook,
@@ -31,11 +33,98 @@ function createTestWord(
     frequencyRank: overrides.frequencyRank,
     examples: overrides.examples ?? [],
     tags: overrides.tags ?? [],
-    learningConcept: overrides.learningConcept
+    learningConcept: overrides.learningConcept,
+    source: overrides.source
   };
 }
 
 describe("level generator", () => {
+  test("lays shared letters out as a deterministic across-and-down crossword", () => {
+    const words = ["PEAR", "AREA", "READ", "DEAR"];
+    const firstLayout = createCrosswordLayout(words);
+    const secondLayout = createCrosswordLayout(words);
+
+    assert.deepEqual(firstLayout, secondLayout);
+    assert.equal(firstLayout.placements.length, words.length);
+    assert.deepEqual(
+      new Set(firstLayout.placements.map((placement) => placement.direction)),
+      new Set(["across", "down"])
+    );
+
+    const occupiedCells = new Map<
+      string,
+      { letter: string; directions: Set<string> }
+    >();
+    let crossingCount = 0;
+
+    for (const placement of firstLayout.placements) {
+      placement.word.split("").forEach((letter, index) => {
+        const row = placement.start.row + (placement.direction === "down" ? index : 0);
+        const col = placement.start.col + (placement.direction === "across" ? index : 0);
+        const key = `${row}:${col}`;
+        const existing = occupiedCells.get(key);
+
+        if (existing) {
+          assert.equal(existing.letter, letter, `conflicting letter at ${key}`);
+          assert.equal(existing.directions.has(placement.direction), false);
+          crossingCount += 1;
+          existing.directions.add(placement.direction);
+        } else {
+          occupiedCells.set(key, {
+            letter,
+            directions: new Set([placement.direction])
+          });
+        }
+      });
+    }
+
+    assert.equal(crossingCount >= words.length - 1, true);
+    const rows = [...occupiedCells.keys()].map((key) => Number(key.split(":")[0]));
+    const cols = [...occupiedCells.keys()].map((key) => Number(key.split(":")[1]));
+    assert.equal(Math.min(...rows), 0);
+    assert.equal(Math.min(...cols), 0);
+    assert.equal(Math.max(...rows), firstLayout.grid.rows - 1);
+    assert.equal(Math.max(...cols), firstLayout.grid.cols - 1);
+  });
+
+  test("continues connected search until it finds a layout inside the grid limit", () => {
+    const words = ["same", "lovely", "colour"];
+    const firstCompleteLayout = createConnectedCrosswordLayout(words);
+    const boundedLayout = createConnectedCrosswordLayout(words, 6);
+
+    assert.ok(firstCompleteLayout);
+    assert.deepEqual(firstCompleteLayout.grid, { rows: 6, cols: 8 });
+    assert.ok(boundedLayout, "Expected search to continue after the 6x8 layout");
+    assert.equal(boundedLayout.grid.rows <= 6, true);
+    assert.equal(boundedLayout.grid.cols <= 6, true);
+    assert.equal(boundedLayout.placements.length, words.length);
+  });
+
+  test("keeps every word playable when a set has no shared letters", () => {
+    const layout = createCrosswordLayout(["CAT", "DOG", "PEN"]);
+
+    assert.equal(layout.placements.length, 3);
+    assert.equal(layout.grid.rows > 0, true);
+    assert.equal(layout.grid.cols > 0, true);
+  });
+
+  test("maximizes legal crossings for the first demo level without creating false words", () => {
+    const layout = createCrosswordLayout(["CAT", "CAR", "ANT", "TOP"]);
+    const occupancy = new Map<string, number>();
+
+    for (const placement of layout.placements) {
+      placement.word.split("").forEach((_, index) => {
+        const row = placement.start.row + (placement.direction === "down" ? index : 0);
+        const col = placement.start.col + (placement.direction === "across" ? index : 0);
+        const key = `${row}:${col}`;
+        occupancy.set(key, (occupancy.get(key) ?? 0) + 1);
+      });
+    }
+
+    const crossings = [...occupancy.values()].filter((count) => count > 1).length;
+    assert.equal(crossings, 2);
+  });
+
   test("normalizes alphabetic words and rejects invalid entries", () => {
     assert.equal(normalizeWord(" excuse "), "EXCUSE");
     assert.equal(normalizeWord("ice-cream"), "");
@@ -68,9 +157,30 @@ describe("level generator", () => {
     assert.equal(level.targetWords[0]?.vocabularyWordId, "ant");
     assert.equal(level.targetWords[0]?.englishMeaning, "a very small insect");
     assert.equal(level.targetWords[0]?.chineseMeaning, "蚂蚁");
-    assert.equal(level.grid.rows, 3);
-    assert.equal(level.grid.cols, 4);
+    assert.equal(level.grid.rows > 0, true);
+    assert.equal(level.grid.cols > 0, true);
+    assert.equal(
+      level.targetWords.some((word) => word.direction === "down"),
+      true
+    );
     assert.equal(level.difficulty, "medium");
+  });
+
+  test("passes verified book-and-lesson source metadata through to clues", () => {
+    const level = generateLevelFromWords([
+      createTestWord("pear", "pear", { source: { book: 1, lesson: 7, edition: "1997", verification: "double-source", provenanceId: "test-pear" } }),
+      createTestWord("area", "area", { source: { book: 1, lesson: 8, edition: "1997", verification: "double-source", provenanceId: "test-area" } }),
+      createTestWord("read", "read", { source: { book: 1, lesson: 9, edition: "1997", verification: "double-source", provenanceId: "test-read" } })
+    ]);
+
+    assert.ok(level);
+    assert.deepEqual(level.targetWords[0]?.source, {
+      book: 1,
+      lesson: 7,
+      edition: "1997",
+      verification: "double-source",
+      provenanceId: "test-pear"
+    });
   });
 
   test("falls back to a practice clue when no meanings are available", () => {
@@ -241,9 +351,16 @@ describe("level generator", () => {
     const generatedUnitLevels = resolveLevelsForUnit(registeredUnit);
     assert.deepEqual(
       generatedUnitLevels.map((level) => level.id),
-      ["nce-1-u1-level-1", "nce-1-u1-level-2", "nce-1-u1-level-3"]
+      [
+        "legacy:nce-1-u1-level-1",
+        "legacy:nce-1-u1-level-2",
+        "legacy:nce-1-u1-level-3"
+      ]
     );
-    assert.equal(generatedUnitLevels[0]?.targetWords[0]?.vocabularyWordId, "nce-1-u1-cat");
+    assert.equal(
+      generatedUnitLevels[0]?.targetWords[0]?.vocabularyWordId,
+      "legacy:nce-1-u1-cat"
+    );
 
     const generatedLevels = resolveLevelsForUnit(
       {

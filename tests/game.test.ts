@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import {
   applyHint,
   applyWordSubmission,
+  buildGrid,
   checkLevelComplete,
   createEmptyLevelProgress,
   createGameState,
@@ -12,6 +13,10 @@ import {
   scoreLevelAttempt,
   validateWord
 } from "../src/lib/game-engine";
+import {
+  getClueSelectionLabel,
+  resolveActiveClue
+} from "../src/lib/crossword-session";
 import {
   getAllBooks,
   getAllLevelIds,
@@ -39,6 +44,89 @@ function getTestLevel(levelId = "nce-1-u1-level-1"): Level {
 }
 
 describe("game engine", () => {
+  test("rejects conflicting and same-direction word overlaps", () => {
+    const baseLevel = getTestLevel();
+    const conflictingLevel: Level = {
+      ...baseLevel,
+      id: "conflict",
+      grid: { rows: 3, cols: 3 },
+      targetWords: [
+        {
+          id: "cat",
+          word: "CAT",
+          clue: "animal",
+          start: { row: 0, col: 0 },
+          direction: "across"
+        },
+        {
+          id: "dog",
+          word: "DOG",
+          clue: "animal",
+          start: { row: 0, col: 0 },
+          direction: "down"
+        }
+      ]
+    };
+    const overlappingLevel: Level = {
+      ...conflictingLevel,
+      id: "overlap",
+      targetWords: [
+        conflictingLevel.targetWords[0],
+        {
+          id: "cab",
+          word: "CAB",
+          clue: "vehicle",
+          start: { row: 0, col: 0 },
+          direction: "across"
+        }
+      ]
+    };
+
+    assert.throws(() => buildGrid(conflictingLevel), /conflicts at 0:0/);
+    assert.throws(() => buildGrid(overlappingLevel), /same direction/);
+  });
+
+  test("keeps the selected unsolved clue active and advances after it is solved", () => {
+    const level = getTestLevel();
+    const secondWord = level.targetWords[1];
+    assert.ok(secondWord);
+
+    const selected = resolveActiveClue(level, createEmptyLevelProgress(), secondWord.id);
+    assert.equal(selected?.id, secondWord.id);
+    assert.equal(
+      getClueSelectionLabel(level, secondWord.id),
+      `Clue 2, ${secondWord.direction}, ${secondWord.word.length} letters`
+    );
+    assert.equal(getClueSelectionLabel(level, secondWord.id).includes(secondWord.word), false);
+
+    const afterSolve = resolveActiveClue(
+      level,
+      {
+        ...createEmptyLevelProgress(),
+        foundWords: [secondWord.id]
+      },
+      secondWord.id
+    );
+    assert.notEqual(afterSolve?.id, secondWord.id);
+  });
+
+  test("does not solve a different valid answer while another clue is selected", () => {
+    const level = getTestLevel();
+    const selectedWord = level.targetWords[0];
+    const otherWord = level.targetWords[1];
+    assert.ok(selectedWord);
+    assert.ok(otherWord);
+
+    const result = applyWordSubmission(
+      createGameState(level),
+      otherWord.word,
+      { targetWordId: selectedWord.id }
+    );
+
+    assert.equal(result.status, "not-target");
+    assert.equal(result.state.progress.wrongAttempts, 1);
+  });
+
   test("creates level attempts with scoring metadata", () => {
     const progress = createEmptyLevelProgress();
 
@@ -73,7 +161,7 @@ describe("game engine", () => {
     const level = getTestLevel();
     const result = validateWord(level, " cat ");
 
-    assert.equal(result?.id, "nce-1-u1-cat");
+    assert.equal(result?.id, "legacy:nce-1-u1-cat");
     assert.equal(result?.word, "CAT");
   });
 
@@ -81,13 +169,13 @@ describe("game engine", () => {
     const level = getTestLevel();
     const state = createGameState(level, {
       ...createEmptyLevelProgress(),
-      foundWords: ["nce-1-u1-cat"]
+      foundWords: ["legacy:nce-1-u1-cat"]
     });
 
     const result = applyWordSubmission(state, "CAT");
 
     assert.equal(result.status, "already-found");
-    assert.equal(result.word.id, "nce-1-u1-cat");
+    assert.equal(result.word.id, "legacy:nce-1-u1-cat");
     assert.deepEqual(result.state.progress, {
       ...state.progress,
       duplicateAttempts: 1
@@ -160,7 +248,10 @@ describe("game engine", () => {
     const firstHint = applyHint(state);
 
     assert.equal(firstHint.status, "revealed");
-    assert.equal(firstHint.cellKey, "0:0");
+    if (firstHint.status !== "revealed" || !nextHint) {
+      assert.fail("Expected a visible first hint");
+    }
+    assert.equal(firstHint.cellKey, `${nextHint.row}:${nextHint.col}`);
     assert.equal(firstHint.letter, "C");
 
     const secondHint = applyHint(firstHint.state);
@@ -252,21 +343,21 @@ describe("game engine", () => {
 
   test("loads levels and vocabulary progress through developer helpers", () => {
     const books = getAllBooks();
-    const book = getBookById("nce-1");
-    const unit = getUnitById("nce-1-u1");
-    const bookUnits = getUnitsByBookId("nce-1");
-    const unitLevels = getLevelsByUnitId("nce-1-u1");
+    const book = getBookById("nce-1997-b1");
+    const unit = getUnitById("nce-1997-b1-u1");
+    const bookUnits = getUnitsByBookId("nce-1997-b1");
+    const unitLevels = getLevelsByUnitId("nce-1997-b1-u1");
     const firstLevel = getFirstLevel();
     const firstLevelId = firstLevel?.id ?? "";
     const nextLevel = getNextLevel(firstLevelId);
-    const bookProgress = getBookProgress("nce-1", {
+    const bookProgress = getBookProgress("nce-1997-b1", {
       [firstLevelId]: {
         ...createEmptyLevelProgress(),
         foundWords: unitLevels[0]?.targetWords.map((word) => word.id) ?? [],
         completed: true
       }
     });
-    const unitProgress = getUnitProgress("nce-1-u1", {
+    const unitProgress = getUnitProgress("nce-1997-b1-u1", {
       [firstLevelId]: {
         ...createEmptyLevelProgress(),
         foundWords: unitLevels[0]?.targetWords.map((word) => word.id) ?? [],
@@ -275,33 +366,33 @@ describe("game engine", () => {
     });
 
     assert.equal(books.length, 4);
-    assert.equal(book?.id, "nce-1");
-    assert.equal(unit?.id, "nce-1-u1");
-    assert.equal(firstLevelId, "nce-1-u1-level-1");
+    assert.equal(book?.id, "nce-1997-b1");
+    assert.equal(unit?.id, "nce-1997-b1-u1");
+    assert.equal(firstLevelId, "nce-1997-b1-level-001");
     assert.equal(levelExists(firstLevelId), true);
     assert.equal(levelExists("1"), false);
     assert.equal(getLevelById("1"), undefined);
     assert.equal(levelExists("missing"), false);
     assert.equal(getLevelById("missing"), undefined);
-    assert.equal(bookUnits.length, 2);
-    assert.equal(unitLevels.length, 3);
-    assert.equal(nextLevel?.id, "nce-1-u1-level-2");
+    assert.equal(bookUnits.length, 5);
+    assert.equal(unitLevels.length, 10);
+    assert.equal(nextLevel?.id, "nce-1997-b1-level-002");
     assert.equal(getNextLevel("missing"), undefined);
-    assert.equal(bookProgress.totalLevels, 6);
+    assert.equal(bookProgress.totalLevels, 50);
     assert.equal(bookProgress.completedLevels, 1);
-    assert.equal(unitProgress.totalLevels, 3);
+    assert.equal(unitProgress.totalLevels, 10);
     assert.equal(unitProgress.completedLevels, 1);
   });
 
   test("derives the recommended flow from completed levels", () => {
-    const unitLevels = getLevelsByUnitId("nce-1-u1");
+    const unitLevels = getLevelsByUnitId("nce-1997-b1-u1");
     const levelOne = unitLevels[0];
     assert.ok(levelOne, "Expected first level to exist");
 
     const initialUnlockedLevelIds = getInitialUnlockedLevelIds();
     assert.equal(initialUnlockedLevelIds.length > 1, true);
     assert.deepEqual(initialUnlockedLevelIds, getAllLevelIds());
-    assert.equal(getNextUnlockedLevel({}, initialUnlockedLevelIds)?.id, "nce-1-u1-level-1");
+    assert.equal(getNextUnlockedLevel({}, initialUnlockedLevelIds)?.id, "nce-1997-b1-level-001");
 
     const progress = {
       [levelOne.id]: {
@@ -314,8 +405,8 @@ describe("game engine", () => {
     const summary = getProgressSummary(progress);
 
     assert.equal(unlockedAfterLevelOne.length, initialUnlockedLevelIds.length);
-    assert.equal(getNextUnlockedLevel(progress, unlockedAfterLevelOne)?.id, "nce-1-u1-level-2");
+    assert.equal(getNextUnlockedLevel(progress, unlockedAfterLevelOne)?.id, "nce-1997-b1-level-002");
     assert.equal(summary.completedLevels, 1);
-    assert.equal(summary.completionRate, 4);
+    assert.equal(summary.completionRate, 1);
   });
 });

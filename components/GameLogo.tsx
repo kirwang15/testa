@@ -1,4 +1,9 @@
+"use client";
+
+import { useI18n } from "@/lib/use-i18n";
+
 export function GameLogo() {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-3" aria-label="Word Trail">
       <svg
@@ -27,7 +32,7 @@ export function GameLogo() {
       <div>
         <p className="text-sm font-bold text-mint">Word Trail</p>
         <h1 className="text-3xl font-black leading-tight text-ink sm:text-4xl">
-          Fill the path
+          {t("brand.tagline")}
         </h1>
       </div>
     </div>

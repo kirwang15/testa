@@ -1,13 +1,25 @@
+"use client";
+
 import Link from "next/link";
-import type { ProgressStatus } from "@/lib/levelLoader";
-import type { UnitProgress, VocabularyBook, VocabularyUnit } from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import {
+  getLessonRangeLabelValue,
+  getUnitNumber
+} from "@/lib/curriculum-presentation";
+import type { ProgressStatus } from "@/lib/curriculum-index";
+import type {
+  CurriculumBookIndex,
+  CurriculumUnitIndex,
+  UnitProgress
+} from "@/types/game";
 
 type UnitCardProps = {
-  book: VocabularyBook;
-  unit: VocabularyUnit;
+  book: CurriculumBookIndex;
+  unit: CurriculumUnitIndex;
   progress: UnitProgress;
   status: ProgressStatus;
   levelCount: number;
+  locked?: boolean;
 };
 
 export function UnitCard({
@@ -15,34 +27,38 @@ export function UnitCard({
   unit,
   progress,
   status,
-  levelCount
+  levelCount,
+  locked = false
 }: UnitCardProps) {
+  const { t } = useI18n();
+  const unitNumber = getUnitNumber(unit);
+  const unitTitle = t("unit.displayTitle", { unit: unitNumber });
+  const lessonRange = getLessonRangeLabelValue(unit.lessonRange);
   const statusLabel =
     status === "completed"
-      ? "Completed"
+      ? t("common.completedState")
       : status === "recommended"
-        ? "Recommended"
-        : "Available";
+        ? t("common.recommended")
+        : t("common.available");
 
-  return (
-    <Link
-      href={`/books/${book.id}/units/${unit.id}`}
-      className="focus-ring group flex min-h-56 flex-col justify-between rounded-lg border-2 border-ink bg-white p-5 shadow-crisp transition hover:-translate-y-1 hover:bg-paper"
-    >
+  const content = (
+    <>
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-black uppercase text-mint">
-              {unit.lessonRange ?? "Vocabulary practice"}
+              {lessonRange
+                ? t("unit.lessonSpan", { range: lessonRange })
+                : t("unit.practice")}
             </p>
-            <h2 className="mt-1 text-2xl font-black text-ink">{unit.title}</h2>
+            <h2 className="mt-1 text-2xl font-black text-ink">{unitTitle}</h2>
             <p className="mt-2 text-sm font-bold text-coral">
-              {unit.difficulty} · {unit.estimatedMinutes ?? 10} min
+              {t("common.cefr", { level: unit.difficulty })}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="rounded-lg border-2 border-ink bg-white px-3 py-1 text-xs font-black uppercase text-ink">
-              {levelCount} levels
+              {t("common.levels", { count: levelCount })}
             </span>
             <span
               className={`rounded-lg border-2 border-ink px-3 py-1 text-xs font-black uppercase ${
@@ -58,7 +74,7 @@ export function UnitCard({
           </div>
         </div>
         <p className="text-sm font-semibold text-ink/75">
-          {unit.wordIds.length} words in this unit, ready for learning-mode or review-mode puzzles.
+          {t("unit.summary", { count: unit.wordCount })}
         </p>
       </div>
 
@@ -72,17 +88,34 @@ export function UnitCard({
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-bold text-ink">
             <p>
-              {progress.completedLevels}/{progress.totalLevels} levels complete
+              {t("common.levelsComplete", { done: progress.completedLevels, total: progress.totalLevels })}
             </p>
             <p className="text-xs text-ink/60">
-              {progress.learnedWords} learned · {progress.masteredWords} mastered
+              {t("book.mastery", { learned: progress.learnedWords, mastered: progress.masteredWords })}
             </p>
           </div>
           <span className="rounded-lg border-2 border-ink bg-ink px-3 py-2 text-sm font-black text-white group-hover:bg-leaf">
-            {status === "recommended" ? "Continue" : "Open unit"}
+            {locked
+              ? t("map.locked")
+              : status === "recommended"
+                ? t("common.continue")
+                : t("common.openUnit")}
           </span>
         </div>
       </div>
+    </>
+  );
+  const cardClass = "group flex min-h-56 flex-col justify-between rounded-lg border-2 border-ink bg-white p-5 shadow-crisp";
+  return locked ? (
+    <article className={`${cardClass} opacity-70`} aria-label={`${unitTitle}. ${t("map.locked")}`}>
+      {content}
+    </article>
+  ) : (
+    <Link
+      href={`/books/${book.id}/units/${unit.id}`}
+      className={`focus-ring ${cardClass} transition hover:-translate-y-1 hover:bg-paper`}
+    >
+      {content}
     </Link>
   );
 }

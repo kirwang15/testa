@@ -1,4 +1,8 @@
 node_modules
 .next
 .test-dist
+.content-dist
+public/content/runtime
 tsconfig.tsbuildinfo
+playwright-report
+test-results

@@ -1,37 +1,57 @@
-# Screenshot-Inspired Level Screen QA
+# Word Trail reference comparison and browser QA
 
-- source visual truth path: `/var/folders/f1/gdvg7ln97x95pyrtk5p4zf0h0000gn/T/codex-clipboard-54d64349-de83-4a0c-a137-f5086dfb5ab8.png`
-- implementation screenshot path: `/Users/kirwang/Desktop/testa/level-desktop.png`
-- mobile screenshot path: `/Users/kirwang/Desktop/testa/level-mobile.png`
-- drawer screenshot path: `/Users/kirwang/Desktop/testa/level-words-drawer.png`
-- full-view comparison evidence: `/Users/kirwang/Desktop/testa/design-qa-comparison.png`
-- viewport: desktop `960x640`, mobile `390x844`
-- state: initial level screen plus Words drawer
-- focused region comparison evidence: not needed; the task requested an inspired original form, and the full-view comparison clearly shows the relevant layout, board, wheel, HUD, and drawer treatment.
+Date: 2026-07-18
+Scope: private friend-demo journey, mobile `390×844`, desktop `1440×900`
 
-**Findings**
-- No actionable P0/P1/P2 findings.
-- P3: The source screenshot uses an interlocking crossword shape and richer illustrated food props; this implementation intentionally keeps the existing generated grid coordinates and uses original CSS-backed tabletop styling per the approved plan.
+## Visual sources
 
-**Required Fidelity Surfaces**
-- Fonts and typography: bold game-style labels, compact HUD text, and large tile letters are legible across desktop and mobile. No text overflow was observed in screenshots.
-- Spacing and layout rhythm: desktop board, wheel, controls, and HUD fit the reference-like viewport; mobile stacks cleanly without control overlap.
-- Colors and visual tokens: warm tabletop browns, dark carved board slots, pale beveled letter tiles, and amber/green HUD accents match the requested arcade-tabletop direction.
-- Image quality and asset fidelity: no cloned image assets were used; original CSS-backed wood/table treatment and lucide icons follow the approved plan.
-- Copy and content: learning content is hidden in a compact Words drawer, preserving meanings/favorites without dominating the playfield.
+- User reference: `/var/folders/f1/gdvg7ln97x95pyrtk5p4zf0h0000gn/T/codex-clipboard-fcdb4f95-7790-4167-aab7-4305f05c6014.png`
+- Corrected reference: `artifacts/design-qa/reference-rotated.png`
+- Same-image comparison: `artifacts/design-qa/reference-vs-prototype.jpg`
+- Mobile onboarding: `artifacts/design-qa/onboarding-mobile.png`
+- Mobile home: `artifacts/design-qa/home-mobile.png`
+- Mobile level: `artifacts/design-qa/level-001-mobile-compact.png`
+- Mobile map: `artifacts/design-qa/map-mobile.png`
+- Desktop level: `artifacts/design-qa/level-001-desktop-english-clue.png`
 
-**Interaction Evidence**
-- Mobile click-through verified: letter select, submit correct word, duplicate feedback, hint reveal, Words drawer, favorite toggle, and meaning-language toggle.
+The comparison image places the corrected handwritten reference on the left and the running production build on the right. Both visibly use horizontal and vertical words connected by shared letters. The product replaces unbounded handwriting with explicit empty boxes and highlights the active word.
 
-**Patches Made Since Previous QA Pass**
-- Reduced board and wheel sizing to fit the first desktop viewport.
-- Hid idle feedback/ribbon clutter.
-- Moved desktop action controls beside the wheel.
-- Put mobile action controls in normal flow to prevent hint/word button overlap.
+## Measured browser results
 
-**Implementation Checklist**
-- Keep existing game engine and generated level layout unchanged.
-- Keep `WordSlots` learning features inside the drawer.
-- Run full automated checks before handoff.
+| Surface | Result |
+| --- | --- |
+| Onboarding mobile height | `1127px`; no horizontal overflow |
+| Home mobile height | `1176px`, below the `1688px` two-screen limit |
+| Level mobile height | `1050px`; no horizontal overflow |
+| Mobile main loop | clue top `76px`, grid top `383px`, submit bottom `830px` |
+| Desktop level | `1440×900` document fits one viewport |
+| Touch targets | no visible button/link/input smaller than `44×44px` |
+| Routes | `/`, `/map`, `/review`, `/parent`, `/settings`, first level all rendered |
+| Map keyboard | ArrowRight moved selection from Book 1 to Book 2 |
 
-final result: passed
+## Interaction evidence
+
+- Fresh profile completed onboarding and entered level 1.
+- English clue was the default on a fresh profile.
+- Switching to Chinese removed the English clue from body text and every DOM attribute checked.
+- UI switch updated `<html lang="en">` and title to `Word Trail · Crossword Adventure`.
+- The first connected board was solved as three crossing words; shared cells were prefilled in later words.
+- First completion changed coins from `100` to `125` and exposed next level, map, and Replay.
+- Replay reset the board to `0/3`; completing it again left coins at `125`.
+- Parent metrics then showed 1 completed adventure, 3 first-ever correct answers, 0 hints, 0 errors, and 1 active day.
+- Review correctly showed an empty due state on the same date.
+- Parent rating confirmation was cancel-first and cancel preserved `all-ages`.
+
+## Findings and fixes
+
+- Fixed: the submit control originally landed below the 844px fold. Board width, mobile spacing, clue copy spacing, and wheel diameter were reduced without shrinking controls below 44px. In the final production build it ends at `830px`.
+- Fixed: the last decorative `game-table-surface` div/CSS art was removed.
+- Fixed: the earlier QA document referenced the wrong image and made unsupported pass claims; this file replaces it with the supplied reference and measured evidence.
+
+## Verdict
+
+- P0 answer, route, profile, and reward failures found in this pass: none.
+- P1 mobile main-loop and navigation failures found after fixes: none.
+- P2 visual comparison issues blocking a private friend demo: none.
+- Private friend-demo UI result: **passed**.
+- Public/licensed course result: **not approved**. The 800-word course remains `automated-beta`; Book 1 demo words still require named human semantic/age review and content-rights confirmation before any public or commercial release.

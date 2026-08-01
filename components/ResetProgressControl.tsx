@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "@/lib/use-i18n";
 
 type ResetProgressControlProps = {
   onReset: () => void;
+  disabled?: boolean;
 };
 
 const CONFIRMATION_WORD = "ERASE";
 
-export function ResetProgressControl({ onReset }: ResetProgressControlProps) {
+export function ResetProgressControl({
+  onReset,
+  disabled = false
+}: ResetProgressControlProps) {
+  const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [announcement, setAnnouncement] = useState("");
@@ -22,21 +28,23 @@ export function ResetProgressControl({ onReset }: ResetProgressControlProps) {
   }, [confirming]);
 
   const startConfirmation = () => {
+    if (disabled) return;
     setConfirming(true);
     setConfirmation("");
-    setAnnouncement("Reset confirmation opened. Type ERASE to continue.");
+    setAnnouncement(t("settings.confirmOpened"));
   };
 
   const cancelReset = () => {
     setConfirming(false);
     setConfirmation("");
-    setAnnouncement("Progress was kept.");
+    setAnnouncement(t("settings.kept"));
     requestAnimationFrame(() => resetButtonRef.current?.focus());
   };
 
   const confirmReset = () => {
+    if (disabled) return;
     if (confirmation.trim().toUpperCase() !== CONFIRMATION_WORD) {
-      setAnnouncement("Type ERASE before deleting local progress.");
+      setAnnouncement(t("settings.typeErase"));
       confirmationInputRef.current?.focus();
       return;
     }
@@ -44,26 +52,26 @@ export function ResetProgressControl({ onReset }: ResetProgressControlProps) {
     onReset();
     setConfirming(false);
     setConfirmation("");
-    setAnnouncement("Local progress was erased.");
+    setAnnouncement(t("settings.erased"));
     requestAnimationFrame(() => resetButtonRef.current?.focus());
   };
 
   return (
     <details className="rounded-lg border-2 border-ink/25 bg-white/70 p-3 text-ink">
       <summary className="focus-ring flex min-h-11 cursor-pointer items-center rounded-lg px-3 text-sm font-black">
-        Parent data controls
+        {t("settings.parentControls")}
       </summary>
       <div className="mt-3 border-t-2 border-ink/10 px-3 pt-3">
         <p className="max-w-xl text-sm font-semibold text-ink/70">
-          Resetting removes coins, completed levels, favorites, and learning history from this device.
+          {t("settings.resetDescription")}
         </p>
         <p className="sr-only" aria-live="polite" aria-atomic="true">
           {announcement}
         </p>
         {confirming ? (
-          <div className="mt-3" role="group" aria-label="Confirm progress reset">
+          <div className="mt-3" role="group" aria-label={t("settings.confirmGroup")}>
             <label htmlFor="reset-confirmation" className="text-sm font-black text-ink">
-              Type ERASE to confirm this local-device reset
+              {t("settings.confirmLabel")}
             </label>
             <input
               ref={confirmationInputRef}
@@ -72,23 +80,24 @@ export function ResetProgressControl({ onReset }: ResetProgressControlProps) {
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
               autoComplete="off"
+              disabled={disabled}
               className="focus-ring mt-2 min-h-11 w-full rounded-lg border-2 border-ink bg-white px-3 py-2 font-black uppercase text-ink"
             />
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={confirmReset}
-                disabled={confirmation.trim().toUpperCase() !== CONFIRMATION_WORD}
+                disabled={disabled || confirmation.trim().toUpperCase() !== CONFIRMATION_WORD}
                 className="focus-ring min-h-11 rounded-lg border-2 border-red-800 bg-red-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Yes, erase progress
+                {t("settings.erase")}
               </button>
               <button
                 type="button"
                 onClick={cancelReset}
                 className="focus-ring min-h-11 rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink"
               >
-                Keep my progress
+                {t("settings.keep")}
               </button>
             </div>
           </div>
@@ -97,9 +106,10 @@ export function ResetProgressControl({ onReset }: ResetProgressControlProps) {
             ref={resetButtonRef}
             type="button"
             onClick={startConfirmation}
-            className="focus-ring mt-3 min-h-11 rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink"
+            disabled={disabled}
+            className="focus-ring mt-3 min-h-11 rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink disabled:cursor-not-allowed disabled:opacity-45"
           >
-            Reset progress…
+            {t("settings.reset")}
           </button>
         )}
       </div>

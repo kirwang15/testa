@@ -4,15 +4,24 @@ import Link from "next/link";
 import { BookCard } from "@/components/BookCard";
 import { CoinBar } from "@/components/CoinBar";
 import { GameLogo } from "@/components/GameLogo";
-import { getBookProgress, getBookStatus, getProgressSummary } from "@/lib/levelLoader";
-import { getAllBooks } from "@/src/lib/vocabulary-loader";
-import { useGameStore } from "@/store/gameStore";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import {
+  getAllBooks,
+  getAllLevels,
+  getBookProgress,
+  getProgressSummary
+} from "@/lib/curriculum-index";
+import { selectActiveGameProgress, useGameStore } from "@/store/gameStore";
+import { useI18n } from "@/lib/use-i18n";
+import { canAccessBook, getEligibleBookStatus } from "@/lib/content-access";
+import { selectActiveProfile } from "@/store/gameStore";
 
 export function BookSelectionPage() {
+  const { t } = useI18n();
   const books = getAllBooks();
-  const coins = useGameStore((state) => state.coins);
-  const savedLevels = useGameStore((state) => state.levels);
-  const savedWords = useGameStore((state) => state.words);
+  const activeProgress = useGameStore(selectActiveGameProgress);
+  const activeProfile = useGameStore(selectActiveProfile);
+  const { coins, levels: savedLevels, words: savedWords } = activeProgress;
   const progressSummary = getProgressSummary(savedLevels);
 
   return (
@@ -25,20 +34,20 @@ export function BookSelectionPage() {
                 href="/"
                 className="focus-ring inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-paper px-4 py-2 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:bg-white"
               >
-                Back home
+                {t("nav.backHome")}
               </Link>
               <GameLogo />
               <p className="max-w-2xl text-base font-semibold text-ink sm:text-lg">
-                Pick a mock vocabulary book, then follow the recommendation or jump anywhere you want.
+                {t("books.intro")}
               </p>
               <div className="flex flex-wrap gap-3 text-sm font-bold text-ink/75">
-                <span>{books.length} books</span>
-                <span>{progressSummary.totalLevels} total levels</span>
-                <span>{progressSummary.completedLevels} completed</span>
-                <span>{books.reduce((sum, book) => sum + (book.estimatedWordCount ?? 0), 0)} mock words</span>
+                <span>{t("common.books", { count: books.length })}</span>
+                <span>{t("common.totalLevels", { count: progressSummary.totalLevels })}</span>
+                <span>{t("common.completed", { count: progressSummary.completedLevels })}</span>
+                <span>{t("common.learningWords", { count: books.reduce((sum, book) => sum + (book.estimatedWordCount ?? 0), 0) })}</span>
               </div>
             </div>
-            <CoinBar coins={coins} />
+            <div className="flex flex-wrap gap-3"><LanguageSwitcher /><CoinBar coins={coins} /></div>
           </div>
         </header>
 
@@ -48,7 +57,13 @@ export function BookSelectionPage() {
               key={book.id}
               book={book}
               progress={getBookProgress(book.id, savedLevels, savedWords)}
-              status={getBookStatus(book.id, savedLevels)}
+              status={getEligibleBookStatus(
+                getAllLevels(),
+                book.id,
+                savedLevels,
+                activeProfile
+              )}
+              locked={!canAccessBook(activeProfile, book)}
             />
           ))}
         </section>

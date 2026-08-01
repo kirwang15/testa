@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useI18n } from "@/lib/use-i18n";
+import type { ClueLanguage } from "@/types/game";
 
 type WordMeaningToggleProps = {
   englishMeaning?: string;
@@ -9,6 +10,8 @@ type WordMeaningToggleProps = {
   wordLabel?: string;
   className?: string;
   sanitizeText?: (text: string) => string;
+  language: ClueLanguage;
+  onToggle: () => void;
 };
 
 function normalizeMeaning(value: string | undefined) {
@@ -22,9 +25,11 @@ export function WordMeaningToggle({
   fallbackMeaning,
   wordLabel,
   className,
-  sanitizeText = (text) => text
+  sanitizeText = (text) => text,
+  language,
+  onToggle
 }: WordMeaningToggleProps) {
-  const [showChinese, setShowChinese] = useState(false);
+  const { t } = useI18n();
   const normalizedEnglishMeaning =
     normalizeMeaning(englishMeaning) ?? normalizeMeaning(fallbackMeaning);
   const normalizedChineseMeaning = normalizeMeaning(chineseMeaning);
@@ -34,17 +39,17 @@ export function WordMeaningToggle({
     normalizedEnglishMeaning !== normalizedChineseMeaning;
 
   const activeMeaning = canToggle
-    ? showChinese
+    ? language === "zh-CN"
       ? normalizedChineseMeaning
       : normalizedEnglishMeaning
     : normalizedEnglishMeaning ??
       normalizedChineseMeaning ??
-      sanitizeText("No explanation available");
+      sanitizeText(t("common.noExplanation"));
 
   const activeLanguage =
     !normalizedEnglishMeaning && normalizedChineseMeaning
       ? "中文"
-      : canToggle && showChinese
+      : canToggle && language === "zh-CN"
         ? "中文"
         : "EN";
 
@@ -58,7 +63,7 @@ export function WordMeaningToggle({
         </span>
         {canToggle ? (
           <span className="text-xs font-medium opacity-70">
-            {sanitizeText("Tap to switch language")}
+            {sanitizeText(language === "en" ? t("language.showChineseClue") : t("language.showEnglishClue"))}
           </span>
         ) : null}
       </div>
@@ -66,10 +71,10 @@ export function WordMeaningToggle({
         <button
           type="button"
           aria-label={sanitizeText(
-            `${showChinese ? "Show English" : "Show Chinese"} ${buttonLabel}`
+            `${language === "zh-CN" ? t("language.showEnglishClue") : t("language.showChineseClue")} ${buttonLabel}`
           )}
-          aria-pressed={showChinese}
-          onClick={() => setShowChinese((currentValue) => !currentValue)}
+          aria-pressed={language === "zh-CN"}
+          onClick={onToggle}
           className="focus-ring mt-2 block min-h-11 rounded-lg px-2 py-2 text-left text-sm font-semibold leading-6 text-current transition hover:bg-white/10 hover:opacity-90"
         >
           {activeMeaning}

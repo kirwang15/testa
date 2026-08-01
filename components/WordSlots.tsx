@@ -1,21 +1,33 @@
-import { Bookmark, CheckCircle2 } from "lucide-react";
+"use client";
+
+import { Bookmark, CheckCircle2, Languages } from "lucide-react";
+import { getActiveCluePresentation } from "@/lib/clue-presentation";
 import { getCellsForWord, getCellKey } from "@/lib/game";
 import {
   getWordCardPresentation,
   sanitizeLevelPresentationText
 } from "@/lib/word-card-presentation";
-import { WordMeaningToggle } from "@/components/WordMeaningToggle";
-import type { Level, LevelProgress, WordLearningProgress } from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import { getRuntimeVocabularyWordById } from "@/lib/content-runtime";
+import type {
+  ClueLanguage,
+  Level,
+  LevelProgress,
+  WordLearningProgress
+} from "@/types/game";
 
 type WordSlotsProps = {
   level: Level;
   progress: LevelProgress;
   recentWordId?: string;
   hintTargetId?: string;
-  hintTargetLabel?: string;
+  activeWordId?: string;
+  clueLanguage: ClueLanguage;
   wordProgressById?: Record<string, WordLearningProgress>;
+  onToggleClueLanguage: () => void;
   onToggleFavorite?: (wordId: string) => void;
-  meaningDisplay?: "toggle" | "bilingual";
+  onSelectWord?: (wordId: string) => void;
+  mutationDisabled?: boolean;
 };
 
 export function WordSlots({
@@ -23,157 +35,214 @@ export function WordSlots({
   progress,
   recentWordId,
   hintTargetId,
-  hintTargetLabel,
+  activeWordId,
+  clueLanguage,
   wordProgressById = {},
+  onToggleClueLanguage,
   onToggleFavorite,
-  meaningDisplay = "toggle"
+  onSelectWord,
+  mutationDisabled = false
 }: WordSlotsProps) {
-  const solvedCount = progress.completed ? level.targetWords.length : progress.foundWords.length;
-  const isBilingualView = meaningDisplay === "bilingual";
+  const { t } = useI18n();
+  const solvedCount = progress.completed
+    ? level.targetWords.length
+    : progress.foundWords.length;
   const safeText = (text: string) =>
     sanitizeLevelPresentationText(level, progress, text) ?? "";
+  const activeWord =
+    level.targetWords.find((word) => word.id === activeWordId) ??
+    level.targetWords.find((word) => !progress.foundWords.includes(word.id));
+  const activeIndex = activeWord
+    ? level.targetWords.findIndex((word) => word.id === activeWord.id)
+    : -1;
+
+  if (!activeWord) {
+    return null;
+  }
+
+  const wordProgress = activeWord.vocabularyWordId
+    ? wordProgressById[activeWord.vocabularyWordId]
+    : undefined;
+  const isFavorite = wordProgress?.favorite === true;
+  const presentation = getWordCardPresentation(
+    level,
+    activeWord,
+    progress,
+    isFavorite
+  );
+  const found = presentation.solved;
+  const vocabulary = activeWord.vocabularyWordId
+    ? getRuntimeVocabularyWordById(activeWord.vocabularyWordId)
+    : undefined;
+  const cluePresentation = getActiveCluePresentation(
+    clueLanguage,
+    {
+      english: presentation.englishMeaning,
+      chinese: presentation.chineseMeaning
+    },
+    t("common.noExplanation"),
+    activeWord.source
+  );
+  const cells = getCellsForWord(activeWord);
 
   return (
-    <div className="rounded-[1.25rem] border border-amber-100/15 bg-black/20 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-4">
-      <div className="flex items-end justify-between gap-3">
+    <div className="rounded-[1.25rem] border border-amber-100/15 bg-black/20 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:p-4">
+      <div className="hidden items-end justify-between gap-3 lg:flex">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-200/75">
-            {safeText(isBilingualView ? "Vocabulary" : "Progress")}
+            {safeText(t("game.progress"))}
           </p>
           <h2 className="text-xl font-black text-white">
-            {safeText(isBilingualView ? "Word meanings" : "Find every word")}
+            {safeText(t("game.findEveryWord"))}
           </h2>
         </div>
         <p className="rounded-full border border-amber-100/20 bg-black/30 px-3 py-1 text-sm font-black text-amber-50">
-          {solvedCount}/{level.targetWords.length} {safeText("solved")}
+          {safeText(t("common.solved", { done: solvedCount, total: level.targetWords.length }))}
         </p>
       </div>
 
-      <div className="mt-4 space-y-3">
-        {level.targetWords.map((word, wordIndex) => {
-          const recentlyFound = recentWordId === word.id;
-          const isHintTarget = hintTargetId === word.id;
-          const cells = getCellsForWord(word);
-          const wordProgress = word.vocabularyWordId
-            ? wordProgressById[word.vocabularyWordId]
-            : undefined;
-          const vocabularyWordId = word.vocabularyWordId;
-          const isFavorite = wordProgress?.favorite === true;
-          const presentation = getWordCardPresentation(level, word, progress, isFavorite);
-          const found = presentation.solved;
-
+      <div className="flex gap-2 overflow-x-auto pb-1 lg:mt-4 lg:flex-wrap lg:overflow-visible" aria-label={safeText(t("game.chooseClue"))}>
+        {level.targetWords.map((word, index) => {
+          const solved = progress.foundWords.includes(word.id) || progress.completed;
+          const selected = word.id === activeWord.id;
           return (
-            <div
+            <button
               key={word.id}
+              type="button"
+              onClick={() => onSelectWord?.(word.id)}
+              disabled={solved}
+              aria-pressed={selected}
               className={[
-                "rounded-2xl border p-3 shadow-sm transition",
-                found
-                  ? "border-emerald-200/30 bg-emerald-700/65 text-white"
-                  : "border-amber-100/15 bg-[#2a1409]/80 text-amber-50",
-                recentlyFound ? "animate-feedback-pop ring-4 ring-amber-200/20" : "",
-                isHintTarget && !found ? "ring-4 ring-sky-300/45" : ""
+                "focus-ring min-h-11 shrink-0 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-[0.08em] transition",
+                selected
+                  ? "border-sky-200/70 bg-sky-500/35 text-white ring-2 ring-sky-300/30"
+                  : solved
+                    ? "border-emerald-200/35 bg-emerald-700/45 text-emerald-50"
+                    : "border-amber-100/20 bg-black/25 text-amber-50 hover:bg-black/40"
               ].join(" ")}
             >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.12em] opacity-80">
-                    {found
-                      ? safeText("Solved")
-                      : isHintTarget
-                        ? safeText(hintTargetLabel ?? `Clue ${wordIndex + 1}`)
-                        : safeText(`Clue ${wordIndex + 1}`)}
-                  </p>
-                  {!found ? (
-                    <p className="mt-1 text-xs font-bold opacity-75">
-                      {word.word.length} {safeText("letters")}
-                    </p>
-                  ) : null}
-                  {isBilingualView ? (
-                    <p className="mt-1 text-base font-black tracking-[0.08em] text-white/95">
-                      {presentation.wordText}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  {vocabularyWordId && found ? (
-                    <button
-                      type="button"
-                      onClick={() => onToggleFavorite?.(vocabularyWordId)}
-                      className="focus-ring grid h-11 w-11 place-items-center rounded-full border border-amber-100/25 bg-white/90 text-[#301006] transition hover:-translate-y-0.5"
-                      aria-label={presentation.favoriteActionLabel}
-                    >
-                      <Bookmark
-                        className={["h-4 w-4", isFavorite ? "fill-current" : ""].join(" ")}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  ) : null}
-                  {found ? (
-                    <span className="grid h-8 w-8 place-items-center rounded-full border border-emerald-100/40 bg-white/90 text-emerald-700">
-                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {presentation.letterTexts.map((letter, index) => {
-                  const cell = cells[index];
-                  const key = getCellKey(cell.row, cell.col);
-                  const visible = letter !== "_";
-                  const hinted = progress.revealedCells.includes(key) && !found;
-
-                  return (
-                    <span
-                      key={`${word.id}-${index}`}
-                      className={[
-                        "grid h-9 w-9 place-items-center rounded-lg border text-sm font-black shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] sm:h-10 sm:w-10",
-                        found
-                          ? "border-emerald-900/30 bg-white text-emerald-700"
-                          : hinted
-                            ? "border-amber-900/30 bg-amber-300 text-[#210d06] ring-2 ring-amber-200/30"
-                            : visible
-                              ? "border-amber-900/30 bg-white text-[#210d06]"
-                              : "border-black/30 bg-black/35 text-transparent"
-                      ].join(" ")}
-                    >
-                      {letter}
-                    </span>
-                  );
-                })}
-              </div>
-              {meaningDisplay === "bilingual" ? (
-                <div className="mt-3 space-y-2 text-sm">
-                  <div className="rounded-xl border border-current/15 bg-black/10 px-3 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-[0.12em] opacity-70">
-                      {safeText("English")}
-                    </p>
-                    <p className="mt-1 font-semibold leading-6">
-                      {presentation.englishMeaning ?? safeText("No explanation available")}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-current/15 bg-black/10 px-3 py-2">
-                    <p className="text-[11px] font-black uppercase tracking-[0.12em] opacity-70">
-                      中文
-                    </p>
-                    <p className="mt-1 font-semibold leading-6">
-                      {presentation.chineseMeaning ?? "暂无中文解释"}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <WordMeaningToggle
-                  className="mt-3"
-                  wordLabel={presentation.wordText}
-                  englishMeaning={presentation.englishMeaning}
-                  chineseMeaning={presentation.chineseMeaning}
-                  fallbackMeaning={presentation.englishMeaning}
-                  sanitizeText={safeText}
-                />
-              )}
-            </div>
+              {safeText(t("game.clue", { number: index + 1 }))} · {safeText(t(`game.${word.direction}`))} · {word.word.length}
+              {solved ? <CheckCircle2 className="ml-1 inline h-3.5 w-3.5" aria-hidden="true" /> : null}
+            </button>
           );
         })}
       </div>
+
+      <section
+        className={[
+          "mt-2 rounded-2xl border p-3 transition sm:mt-4 sm:p-4",
+          found
+            ? "border-emerald-200/35 bg-emerald-700/60 text-white"
+            : hintTargetId === activeWord.id
+              ? "border-sky-200/45 bg-[#2a1409]/85 text-amber-50 ring-2 ring-sky-300/25"
+              : "border-amber-100/20 bg-[#2a1409]/85 text-amber-50",
+          recentWordId === activeWord.id ? "animate-feedback-pop" : ""
+        ].join(" ")}
+        aria-label={safeText(t("game.currentClue"))}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.12em] opacity-75">
+              {safeText(t("game.clue", { number: activeIndex + 1 }))} · {safeText(t(`game.${activeWord.direction}`))}
+            </p>
+            <p className="mt-1 text-sm font-bold opacity-80">
+              {safeText(t("common.letters", { count: activeWord.word.length }))}
+            </p>
+            {activeWord.source ? (
+              <p className="mt-1 text-[11px] font-bold opacity-70">
+                {safeText(
+                  t("game.source", {
+                    book: activeWord.source.book,
+                    lesson: activeWord.source.lesson
+                  })
+                )}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onToggleClueLanguage}
+            disabled={mutationDisabled}
+            className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-xl border border-current/25 bg-black/20 px-3 py-2 text-xs font-black"
+            aria-label={
+              clueLanguage === "en"
+                ? safeText(t("language.showChineseClue"))
+                : safeText(t("language.showEnglishClue"))
+            }
+          >
+            <Languages className="h-4 w-4" aria-hidden="true" />
+            {clueLanguage === "en"
+              ? safeText(t("language.clueEnglish"))
+              : safeText(t("language.clueChinese"))}
+          </button>
+        </div>
+
+        {found ? (
+          <div className="mt-4 rounded-xl border border-white/15 bg-black/15 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-2xl font-black tracking-[0.08em]">
+                  {presentation.wordText}
+                </p>
+                {vocabulary?.partOfSpeech || vocabulary?.phonetic ? (
+                  <p className="mt-1 text-xs font-bold opacity-75">
+                    {[vocabulary.partOfSpeech, vocabulary.phonetic]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                ) : null}
+              </div>
+              {activeWord.vocabularyWordId ? (
+                <button
+                  type="button"
+                  onClick={() => onToggleFavorite?.(activeWord.vocabularyWordId!)}
+                  disabled={mutationDisabled}
+                  className="focus-ring grid h-11 w-11 place-items-center rounded-full border border-white/25 bg-white/90 text-[#301006]"
+                  aria-label={presentation.favoriteActionLabel}
+                >
+                  <Bookmark
+                    className={["h-4 w-4", isFavorite ? "fill-current" : ""].join(" ")}
+                    aria-hidden="true"
+                  />
+                </button>
+              ) : null}
+            </div>
+            {vocabulary?.examples[0] ? (
+              <p className="mt-3 text-sm font-semibold leading-6 opacity-90">
+                {vocabulary.examples[0]}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-2 rounded-xl border border-current/15 bg-black/15 px-3 py-2 text-sm font-bold leading-6 sm:mt-4 sm:px-4 sm:py-3 sm:text-base sm:leading-7">
+            {safeText(cluePresentation.text)}
+          </p>
+        )}
+
+        <div className="mt-4 hidden flex-wrap gap-1.5 sm:flex" aria-hidden="true">
+          {presentation.letterTexts.map((letter, index) => {
+            const cell = cells[index];
+            const key = getCellKey(cell.row, cell.col);
+            const visible = letter !== "_";
+            const hinted = progress.revealedCells.includes(key) && !found;
+            return (
+              <span
+                key={`${activeWord.id}-${index}`}
+                className={[
+                  "grid h-9 w-9 place-items-center rounded-lg border text-sm font-black",
+                  found
+                    ? "border-emerald-900/30 bg-white text-emerald-700"
+                    : hinted || visible
+                      ? "border-amber-900/30 bg-amber-300 text-[#210d06]"
+                      : "border-black/30 bg-black/35 text-transparent"
+                ].join(" ")}
+              >
+                {letter}
+              </span>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

@@ -19,35 +19,36 @@ import { createEmptyLevelProgress } from "../src/lib/game-engine";
 import type { VocabularyImportBook } from "../types/game";
 
 describe("vocabulary loader", () => {
-  test("loads normalized books, units, and words from mock source files", () => {
+  test("loads the four normalized 1997 curriculum books", () => {
     const books = getAllBooks();
     const units = getAllUnits();
     const words = getAllWords();
-    const book = getBookById("nce-1");
-    const bookUnits = getUnitsForBook("nce-1");
-    const unit = getUnitById("nce-1", "nce-1-u1");
-    const unitWords = getUnitWords("nce-1", "nce-1-u1");
-    const word = getWordById("nce-1-u1-cat");
+    const book = getBookById("nce-1997-b1");
+    const bookUnits = getUnitsForBook("nce-1997-b1");
+    const unit = getUnitById("nce-1997-b1", "nce-1997-b1-u1");
+    const unitWords = getUnitWords("nce-1997-b1", "nce-1997-b1-u1");
+    const word = unitWords[0];
 
     assert.equal(books.length, 4);
-    assert.equal(units.length, 8);
-    assert.equal(words.length > 0, true);
+    assert.equal(units.length, 20);
+    assert.equal(words.length, 800);
     assert.equal(book?.title, "New Concept English Book 1");
     assert.equal(book?.level, "A1");
     assert.equal(book?.colorTheme, "mint");
-    assert.equal(book?.estimatedWordCount, 25);
-    assert.equal(bookUnits.length, 2);
-    assert.equal(unit?.title, "Unit 1: First Everyday Words");
+    assert.equal(book?.estimatedWordCount, 200);
+    assert.equal(bookUnits.length, 5);
+    assert.equal(unit?.title.startsWith("Trail 1:"), true);
     assert.equal(unit?.difficulty, "A1");
-    assert.equal(unit?.estimatedMinutes, 12);
+    assert.equal(unit?.estimatedMinutes, 30);
     assert.equal(unitWords[0]?.displayText, unitWords[0]?.word);
-    assert.equal(word?.englishMeaning, "a small animal often kept as a pet");
-    assert.equal(word?.chineseMeaning, "猫");
+    assert.equal(Boolean(word?.englishMeaning), true);
+    assert.equal(Boolean(word?.chineseMeaning), true);
+    assert.equal(word?.source?.edition, "1997");
     assert.equal(unitWords.length > 0, true);
   });
 
   test("derives book and unit progress from completed levels", () => {
-    const unitLevels = getLevelsForUnit("nce-1", "nce-1-u1");
+    const unitLevels = getLevelsForUnit("nce-1997-b1", "nce-1997-b1-u1");
     const firstLevel = unitLevels[0];
     assert.ok(firstLevel, "Expected nce-1-u1 to have a generated level");
 
@@ -58,9 +59,11 @@ describe("vocabulary loader", () => {
         completed: true
       }
     };
+    const firstVocabularyWordId = firstLevel.targetWords[0]?.vocabularyWordId;
+    assert.ok(firstVocabularyWordId);
     const wordProgress = {
-      "nce-1-u1-cat": {
-        wordId: "nce-1-u1-cat",
+      [firstVocabularyWordId]: {
+        wordId: firstVocabularyWordId,
         masteryLevel: 4,
         correctCount: 2,
         wrongCount: 0,
@@ -69,21 +72,23 @@ describe("vocabulary loader", () => {
         difficult: false
       }
     };
-    const bookProgress = getBookProgress("nce-1", progress, wordProgress);
-    const unitProgress = getUnitProgress("nce-1-u1", progress, wordProgress);
+    const bookProgress = getBookProgress("nce-1997-b1", progress, wordProgress);
+    const unitProgress = getUnitProgress("nce-1997-b1-u1", progress, wordProgress);
 
-    assert.equal(bookProgress.totalUnits, 2);
+    assert.equal(bookProgress.totalUnits, 5);
     assert.equal(bookProgress.completedLevels, 1);
     assert.equal(bookProgress.masteredWords, 1);
     assert.equal(unitProgress.completedLevels, 1);
-    assert.equal(unitProgress.totalLevels, 3);
+    assert.equal(unitProgress.totalLevels, 10);
     assert.equal(unitProgress.learnedWords, 1);
   });
 
   test("keeps wrong-only words out of book and unit learned metrics", () => {
+    const wordId = getUnitWords("nce-1997-b1", "nce-1997-b1-u1")[0]?.id;
+    assert.ok(wordId);
     const wrongOnly = {
-      "nce-1-u1-cat": {
-        wordId: "nce-1-u1-cat",
+      [wordId]: {
+        wordId,
         masteryLevel: 0,
         correctCount: 0,
         wrongCount: 2,
@@ -94,8 +99,8 @@ describe("vocabulary loader", () => {
       }
     };
 
-    const bookProgress = getBookProgress("nce-1", {}, wrongOnly);
-    const unitProgress = getUnitProgress("nce-1-u1", {}, wrongOnly);
+    const bookProgress = getBookProgress("nce-1997-b1", {}, wrongOnly);
+    const unitProgress = getUnitProgress("nce-1997-b1-u1", {}, wrongOnly);
 
     assert.equal(bookProgress.learnedWords, 0);
     assert.equal(unitProgress.learnedWords, 0);
@@ -115,10 +120,14 @@ describe("vocabulary loader", () => {
 
     assert.deepEqual(
       levels.map((level) => level.id),
-      ["nce-1-u2-level-1", "nce-1-u2-level-2", "nce-1-u2-level-3"]
+      [
+        "legacy:nce-1-u2-level-1",
+        "legacy:nce-1-u2-level-2",
+        "legacy:nce-1-u2-level-3"
+      ]
     );
     assert.equal(fishWord?.clue, "an animal that lives in water");
-    assert.equal(fishWord?.vocabularyWordId, "nce-1-u2-fish");
+    assert.equal(fishWord?.vocabularyWordId, "legacy:nce-1-u2-fish");
     assert.equal(fishWord?.englishMeaning, "an animal that lives in water");
     assert.equal(fishWord?.chineseMeaning, "鱼");
     assert.equal(fanWord?.clue, "a device that moves air");
@@ -142,7 +151,14 @@ describe("vocabulary loader", () => {
                 id: "legacy-word",
                 word: "ticket",
                 meaning: "a paper pass for travel or entry",
-                chineseMeaning: "票"
+                chineseMeaning: "票",
+                source: {
+                  book: 1,
+                  lesson: 7,
+                  edition: "1997",
+                  verification: "double-source",
+                  provenanceId: "legacy-test"
+                }
               }
             ]
           }
@@ -152,6 +168,13 @@ describe("vocabulary loader", () => {
 
     assert.equal(normalizedData.words[0]?.englishMeaning, "a paper pass for travel or entry");
     assert.equal(normalizedData.words[0]?.chineseMeaning, "票");
+    assert.deepEqual(normalizedData.words[0]?.source, {
+      book: 1,
+      lesson: 7,
+      edition: "1997",
+      verification: "double-source",
+      provenanceId: "legacy-test"
+    });
   });
 
   test("reports duplicate ids and skips invalid or empty units safely", () => {

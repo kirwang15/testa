@@ -2,10 +2,14 @@ import {
   getAllLevelIds,
   getFirstLevel,
   getLevelById,
-  getLevelsByUnitId,
-  getRecommendedLevel,
-  getUnitById
-} from "./levelLoader";
+  getRecommendedLevel
+} from "./curriculum-index";
+import {
+  getRuntimeLevelById,
+  getRuntimeVocabularyWordContentVersion,
+  getRuntimeVocabularyWordById,
+  registerRuntimeLevel
+} from "./content-runtime";
 import {
   applyHint as applyEngineHint,
   applyWordSubmission as applyEngineWordSubmission,
@@ -26,13 +30,18 @@ import {
   markWordCorrect,
   markWordWrong,
   normalizeWordLearningProgress,
-  recordStudySession,
+  recordActualHintEvent,
+  recordCompletedDueReview,
+  recordFirstTryCorrect,
+  getLocalCalendarDateKey,
+  recordLearningActivity,
   synchronizeLearningStatistics
 } from "../src/lib/learning-engine";
+import { getContentBookNumber } from "./content-access";
 import { scheduleNextReview } from "../src/lib/review-engine";
-import { getWordById } from "../src/lib/vocabulary-loader";
 import type {
   CellKey,
+  CurriculumLevelIndex,
   GameProgress,
   HintResult,
   LearningStatistics,
@@ -42,6 +51,8 @@ import type {
   TargetWord,
   WordLearningProgress
 } from "../types/game";
+
+const LEGACY_CONTENT_PREFIX = "legacy:";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -75,12 +86,38 @@ function normalizeCount(value: unknown) {
     : 0;
 }
 
-function normalizeHintStages(value: unknown, level: Level | undefined) {
+function isRuntimeLevel(
+  level: Level | CurriculumLevelIndex | undefined
+): level is Level {
+  return Boolean(level && "targetWords" in level && Array.isArray(level.targetWords));
+}
+
+function normalizeHintStages(
+  value: unknown,
+  level: Level | CurriculumLevelIndex | undefined
+) {
   if (!isRecord(value) || !level) {
     return {};
   }
 
-  const targetById = new Map(level.targetWords.map((word) => [word.id, word]));
+  if (!isRuntimeLevel(level)) {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([wordId, rawStage]) =>
+        typeof rawStage === "number" && Number.isFinite(rawStage) && rawStage > 0
+          ? [[wordId, Math.min(12, Math.floor(rawStage))]]
+          : []
+      )
+    );
+  }
+
+  const targetById = new Map(
+    level.targetWords.flatMap((word) => [
+      [word.id, word] as const,
+      ...(word.id.startsWith(LEGACY_CONTENT_PREFIX)
+        ? [[word.id.slice(LEGACY_CONTENT_PREFIX.length), word] as const]
+        : [])
+    ])
+  );
 
   return Object.fromEntries(
     Object.entries(value).flatMap(([wordId, rawStage]) => {
@@ -94,48 +131,63 @@ function normalizeHintStages(value: unknown, level: Level | undefined) {
         return [];
       }
 
-      return [[wordId, Math.min(word.word.length + 1, Math.floor(rawStage))]];
+      return [[word.id, Math.min(word.word.length + 1, Math.floor(rawStage))]];
     })
   );
 }
 
 function normalizeLevelProgress(
   value: unknown,
-  level?: Level,
+  level?: Level | CurriculumLevelIndex,
   includeActiveReplay = true
 ): LevelProgress {
   if (!isRecord(value)) {
-    return createEmptyLevelProgress();
+    return createEmptyLevelProgress(level?.layoutRevision);
   }
 
-  const targetIds = level
+  const layoutMatches =
+    !level?.layoutRevision || value.layoutRevision === level.layoutRevision;
+
+  const targetIds = isRuntimeLevel(level)
     ? new Set(level.targetWords.map((word) => word.id))
     : undefined;
-  const gridCellKeys = level
+  const canonicalTargetId = (wordId: string) => {
+    if (!level) return wordId;
+    if (targetIds?.has(wordId)) return wordId;
+    const namespacedId = `${LEGACY_CONTENT_PREFIX}${wordId}`;
+    return targetIds?.has(namespacedId) ? namespacedId : wordId;
+  };
+  const gridCellKeys = isRuntimeLevel(level)
     ? new Set(Object.keys(buildGrid(level)))
     : undefined;
-  const foundWords = uniqueStrings(value.foundWords).filter(
+  const foundWords = uniqueStrings(value.foundWords).map(canonicalTargetId).filter(
     (wordId) => !targetIds || targetIds.has(wordId)
   );
-  const revealedCells = Array.from(new Set(normalizeCellKeyList(value.revealedCells))).filter(
-    (cellKey) => !gridCellKeys || gridCellKeys.has(cellKey)
-  );
-  const hintedWordIds = uniqueStrings(value.hintedWordIds).filter(
-    (wordId) => !targetIds || targetIds.has(wordId)
-  );
+  const revealedCells = layoutMatches
+    ? Array.from(new Set(normalizeCellKeyList(value.revealedCells))).filter(
+        (cellKey) => !gridCellKeys || gridCellKeys.has(cellKey)
+      )
+    : [];
+  const hintedWordIds = layoutMatches
+    ? uniqueStrings(value.hintedWordIds).map(canonicalTargetId).filter(
+        (wordId) => !targetIds || targetIds.has(wordId)
+      )
+    : [];
   const allTargetsFound = Boolean(
-    level && level.targetWords.every((word) => foundWords.includes(word.id))
+    isRuntimeLevel(level) &&
+      level.targetWords.every((word) => foundWords.includes(word.id))
   );
   const hasReliableCompletionHistory =
     value.completed === true &&
     (typeof value.completedAt === "string" || normalizeCount(value.attemptCount) > 0);
   const normalized: LevelProgress = {
+    ...(level?.layoutRevision ? { layoutRevision: level.layoutRevision } : {}),
     foundWords,
     revealedCells,
     hintedWordIds,
-    hintStages: normalizeHintStages(value.hintStages, level),
+    hintStages: layoutMatches ? normalizeHintStages(value.hintStages, level) : {},
     completed: allTargetsFound || hasReliableCompletionHistory,
-    hintsUsed: normalizeHintsUsed(value.hintsUsed),
+    hintsUsed: layoutMatches ? normalizeHintsUsed(value.hintsUsed) : 0,
     wrongAttempts: normalizeCount(value.wrongAttempts),
     duplicateAttempts: normalizeCount(value.duplicateAttempts),
     bestStars: Math.min(3, normalizeCount(value.bestStars)),
@@ -153,11 +205,17 @@ function normalizeLevelProgress(
   if (
     includeActiveReplay &&
     level &&
+    layoutMatches &&
     value.completed === true &&
     isRecord(value.activeReplayAttempt)
   ) {
     const activeProgress = normalizeLevelProgress(
-      value.activeReplayAttempt,
+      {
+        ...value.activeReplayAttempt,
+        // Attempt snapshots intentionally omit historical scoring metadata,
+        // including the revision. The completed parent is the revision owner.
+        layoutRevision: level.layoutRevision
+      },
       level,
       false
     );
@@ -175,11 +233,42 @@ function normalizeLevelMap(value: unknown) {
   }
 
   return Object.fromEntries(
-    Object.entries(value).map(([levelId, levelProgress]) => [
-      levelId,
-      normalizeLevelProgress(levelProgress, getLevelById(levelId))
-    ])
+    Object.entries(value).map(([levelId, levelProgress]) => {
+      const canonicalLevelId = canonicalizePersistedLevelId(levelId);
+      const level = getProgressLevelById(canonicalLevelId);
+      return [
+        level?.id ?? canonicalLevelId,
+        normalizeLevelProgress(levelProgress, level)
+      ];
+    })
   );
+}
+
+function canonicalizePersistedLevelId(levelId: string) {
+  if (levelId.startsWith(LEGACY_CONTENT_PREFIX) || levelId.startsWith("nce-1997-")) {
+    return levelId;
+  }
+  return /^nce-[1-4]-u\d+-level-\d+$/.test(levelId)
+    ? `${LEGACY_CONTENT_PREFIX}${levelId}`
+    : levelId;
+}
+
+function getProgressLevelById(levelId: string) {
+  const canonicalLevelId = canonicalizePersistedLevelId(levelId);
+  const known =
+    getRuntimeLevelById(canonicalLevelId) ?? getLevelById(canonicalLevelId);
+  if (known) return known;
+
+  const legacy = /^legacy:(nce-[1-4])-(u\d+)-level-\d+$/.exec(canonicalLevelId);
+  if (!legacy) return undefined;
+  return {
+    id: canonicalLevelId,
+    bookId: `${LEGACY_CONTENT_PREFIX}${legacy[1]}`,
+    unitId: `${LEGACY_CONTENT_PREFIX}${legacy[1]}-${legacy[2]}`,
+    wordCount: 0,
+    releaseStatus: "automated-beta" as const,
+    rating: "all-ages" as const
+  } satisfies CurriculumLevelIndex;
 }
 
 function normalizeWordProgressMap(value: unknown) {
@@ -190,20 +279,48 @@ function normalizeWordProgressMap(value: unknown) {
   return Object.fromEntries(
     Object.entries(value)
       .filter(([wordId]) => typeof wordId === "string" && wordId.length > 0)
-      .map(([wordId, wordProgress]) => [
-        wordId,
+      .map(([wordId, wordProgress]) => {
+        const canonicalWordId = canonicalizePersistedWordId(wordId);
+        return [
+        canonicalWordId,
         normalizeWordLearningProgress(
           isRecord(wordProgress) ? (wordProgress as Partial<WordLearningProgress>) : undefined,
-          wordId
+          canonicalWordId
         )
-      ])
+      ];
+      })
   );
+}
+
+function canonicalizePersistedWordId(wordId: string) {
+  if (wordId.startsWith(LEGACY_CONTENT_PREFIX) || wordId.startsWith("nce-1997-")) {
+    return wordId;
+  }
+  return /^nce-[1-4]-u\d+-/.test(wordId)
+    ? `${LEGACY_CONTENT_PREFIX}${wordId}`
+    : wordId;
 }
 
 function normalizeStudyStats(value: unknown): LearningStatistics {
   if (!isRecord(value)) {
     return createInitialLearningStatistics();
   }
+
+  const activeDateKeys = Array.isArray(value.activeDateKeys)
+    ? Array.from(
+        new Set(
+          value.activeDateKeys.filter(
+            (date): date is string =>
+              typeof date === "string" &&
+              /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+              Number.isFinite(Date.parse(`${date}T00:00:00.000Z`)) &&
+              new Date(Date.parse(`${date}T00:00:00.000Z`))
+                .toISOString()
+                .slice(0, 10) === date
+          )
+        )
+      ).sort()
+    : [];
 
   return {
     totalWordsLearned:
@@ -223,12 +340,28 @@ function normalizeStudyStats(value: unknown): LearningStatistics {
         ? Math.max(0, Math.floor(value.studyStreak))
         : 0,
     lastStudyDate:
-      typeof value.lastStudyDate === "string" ? value.lastStudyDate : undefined
+      typeof value.lastStudyDate === "string" ? value.lastStudyDate : undefined,
+    firstTryCorrectWords:
+      typeof value.firstTryCorrectWords === "number" && Number.isFinite(value.firstTryCorrectWords)
+        ? Math.max(0, Math.floor(value.firstTryCorrectWords))
+        : 0,
+    completedDueReviews:
+      typeof value.completedDueReviews === "number" && Number.isFinite(value.completedDueReviews)
+        ? Math.max(0, Math.floor(value.completedDueReviews))
+        : 0,
+    actualHintEvents:
+      typeof value.actualHintEvents === "number" && Number.isFinite(value.actualHintEvents)
+        ? Math.max(0, Math.floor(value.actualHintEvents))
+        : 0,
+    activeDateKeys
   };
 }
 
 function getCurrentLocation(levelId: string | undefined) {
-  const level = levelId ? getLevelById(levelId) : undefined;
+  const canonicalLevelId = levelId
+    ? canonicalizePersistedLevelId(levelId)
+    : undefined;
+  const level = canonicalLevelId ? getProgressLevelById(canonicalLevelId) : undefined;
 
   return {
     currentLevelId: level?.id,
@@ -240,11 +373,13 @@ function getCurrentLocation(levelId: string | undefined) {
 function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
   const recommendedLevel = getRecommendedLevel(progress.levels) ?? getFirstLevel();
   const currentLevel = progress.currentLevelId
-    ? getLevelById(progress.currentLevelId)
+    ? getProgressLevelById(progress.currentLevelId)
     : undefined;
   const location = getCurrentLocation(currentLevel?.id ?? recommendedLevel?.id);
   const trustedWords = Object.fromEntries(
-    Object.entries(progress.words).filter(([wordId]) => Boolean(getWordById(wordId)))
+    Object.entries(progress.words).filter(([wordId]) =>
+      /^(?:nce-1997-b[1-4]-|legacy:nce-[1-4]-u\d+-)/.test(wordId)
+    )
   );
   const studyStats = synchronizeLearningStatistics(progress.studyStats, trustedWords);
 
@@ -257,16 +392,6 @@ function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
     currentBookId: currentLevel?.bookId ?? location.currentBookId,
     studyStats
   };
-}
-
-function getUnitEstimatedMinutes(level: Level) {
-  const fallbackMinutes = 12;
-  const unitLevels = getLevelsByUnitId(level.unitId);
-  const unitLevelCount = Math.max(1, unitLevels.length);
-  const unit = getUnitById(level.unitId);
-  const totalUnitMinutes = unit?.estimatedMinutes ?? fallbackMinutes;
-
-  return Math.max(1, Math.round(totalUnitMinutes / unitLevelCount));
 }
 
 export function createInitialGameProgress(): GameProgress {
@@ -285,11 +410,21 @@ export function createInitialGameProgress(): GameProgress {
 }
 
 export function getSavedLevelProgress(progress: GameProgress, levelId: string) {
-  return progress.levels[levelId] ?? createEmptyLevelProgress();
+  const canonicalLevelId = canonicalizePersistedLevelId(levelId);
+  return (
+    progress.levels[canonicalLevelId] ??
+    progress.levels[levelId] ??
+    createEmptyLevelProgress(getProgressLevelById(canonicalLevelId)?.layoutRevision)
+  );
 }
 
 export function getSavedWordProgress(progress: GameProgress, wordId: string) {
-  return progress.words[wordId] ?? createEmptyWordLearningProgress(wordId);
+  const canonicalWordId = canonicalizePersistedWordId(wordId);
+  return (
+    progress.words[canonicalWordId] ??
+    progress.words[wordId] ??
+    createEmptyWordLearningProgress(canonicalWordId)
+  );
 }
 
 function persistLevelAttempt(
@@ -372,10 +507,35 @@ function updateWordProgressAfterCorrectAnswer(
     new Date(reviewedAt)
   );
 
+  const runtimeWord = getRuntimeVocabularyWordById(wordId);
+  const sourceBook = runtimeWord
+    ? getContentBookNumber(runtimeWord.bookId)
+    : undefined;
+  const contentVersion = getRuntimeVocabularyWordContentVersion(wordId);
   return {
     ...progress.words,
-    [wordId]: scheduledProgress
+    [wordId]: {
+      ...scheduledProgress,
+      ...(sourceBook ? { sourceBook } : {}),
+      ...(runtimeWord ? { contentRating: runtimeWord.rating } : {}),
+      ...(contentVersion ? { contentVersion } : {}),
+      firstTryCorrectRecorded:
+        baseWordProgress.firstTryCorrectRecorded ||
+        (baseWordProgress.correctCount === 0 && baseWordProgress.wrongCount === 0)
+    }
   };
+}
+
+function isFirstTryCorrect(
+  progress: GameProgress,
+  wordId: string
+) {
+  const wordProgress = getSavedWordProgress(progress, wordId);
+  return (
+    !wordProgress.firstTryCorrectRecorded &&
+    wordProgress.correctCount === 0 &&
+    wordProgress.wrongCount === 0
+  );
 }
 
 function updateWordProgressAfterHint(
@@ -390,9 +550,19 @@ function updateWordProgressAfterHint(
       ? scheduleNextReview(difficultProgress, "hint", new Date(reviewedAt))
       : difficultProgress;
 
+  const runtimeWord = getRuntimeVocabularyWordById(wordId);
+  const sourceBook = runtimeWord
+    ? getContentBookNumber(runtimeWord.bookId)
+    : undefined;
+  const contentVersion = getRuntimeVocabularyWordContentVersion(wordId);
   return {
     ...progress.words,
-    [wordId]: scheduledProgress
+    [wordId]: {
+      ...scheduledProgress,
+      ...(sourceBook ? { sourceBook } : {}),
+      ...(runtimeWord ? { contentRating: runtimeWord.rating } : {}),
+      ...(contentVersion ? { contentVersion } : {})
+    }
   };
 }
 
@@ -473,9 +643,19 @@ function updateWordProgressAfterWrongAnswer(
   wordId: string,
   reviewedAt: string
 ) {
+  const runtimeWord = getRuntimeVocabularyWordById(wordId);
+  const sourceBook = runtimeWord
+    ? getContentBookNumber(runtimeWord.bookId)
+    : undefined;
+  const contentVersion = getRuntimeVocabularyWordContentVersion(wordId);
   return {
     ...progress.words,
-    [wordId]: markWordWrong(getSavedWordProgress(progress, wordId), reviewedAt)
+    [wordId]: {
+      ...markWordWrong(getSavedWordProgress(progress, wordId), reviewedAt),
+      ...(sourceBook ? { sourceBook } : {}),
+      ...(runtimeWord ? { contentRating: runtimeWord.rating } : {}),
+      ...(contentVersion ? { contentVersion } : {})
+    }
   };
 }
 
@@ -483,19 +663,22 @@ export function applyWordSubmission(
   progress: GameProgress,
   level: Level,
   attempt: string,
-  attemptProgress?: LevelProgress
+  attemptProgress?: LevelProgress,
+  targetWordId?: string,
+  localDateKey = getLocalCalendarDateKey()
 ): {
   nextProgress: GameProgress;
   result: SubmitWordResult;
   attemptProgress: LevelProgress;
 } {
+  registerRuntimeLevel(level);
   const historicalLevelProgress = getSavedLevelProgress(progress, level.id);
   const currentState = createGameState(
     level,
     attemptProgress ?? historicalLevelProgress,
     progress.coins
   );
-  const result = applyEngineWordSubmission(currentState, attempt);
+  const result = applyEngineWordSubmission(currentState, attempt, { targetWordId });
 
   if (result.status !== "correct" && result.status !== "level-complete") {
     if (result.status === "already-found") {
@@ -533,7 +716,9 @@ export function applyWordSubmission(
     }
 
     const reviewedAt = new Date().toISOString();
-    const relatedWord = getRelatedTargetWord(level, result.attempt, currentState.progress);
+    const relatedWord =
+      level.targetWords.find((word) => word.id === targetWordId) ??
+      getRelatedTargetWord(level, result.attempt, currentState.progress);
     const nextWords = relatedWord?.vocabularyWordId
       ? updateWordProgressAfterWrongAnswer(
           progress,
@@ -551,7 +736,8 @@ export function applyWordSubmission(
           Boolean(attemptProgress)
         )
       },
-      words: nextWords
+      words: nextWords,
+      studyStats: recordLearningActivity(progress.studyStats, reviewedAt, localDateKey)
     });
 
     return {
@@ -580,6 +766,10 @@ export function applyWordSubmission(
           wordReceivedHint(result.word, currentState.progress)
         )
       : progress.words;
+  const firstTryCorrect = Boolean(
+    result.word.vocabularyWordId &&
+    isFirstTryCorrect(progress, result.word.vocabularyWordId)
+  );
   const persistedLevelProgress =
     result.status === "level-complete" && !newlyCompleted
       ? {
@@ -608,20 +798,14 @@ export function applyWordSubmission(
       ...progress.levels,
       [level.id]: persistedLevelProgress
     },
-    words: nextWords
+    words: nextWords,
+    studyStats: firstTryCorrect
+      ? recordFirstTryCorrect(progress.studyStats, reviewedAt, localDateKey)
+      : recordLearningActivity(progress.studyStats, reviewedAt, localDateKey)
   };
-  const nextProgress = synchronizeProgressDerivedState(
-    newlyCompleted
-      ? {
-          ...baseNextProgress,
-          studyStats: recordStudySession(
-            baseNextProgress.studyStats,
-            reviewedAt,
-            getUnitEstimatedMinutes(level)
-          )
-        }
-      : baseNextProgress
-  );
+  // `totalStudyMinutes` is a legacy migration-only field. A level's estimated
+  // duration is curriculum metadata, not a measured session duration.
+  const nextProgress = synchronizeProgressDerivedState(baseNextProgress);
 
   if (result.status === "correct") {
     return {
@@ -656,12 +840,14 @@ export function applyHintUsage(
   progress: GameProgress,
   level: Level,
   attemptProgress?: LevelProgress,
-  targetWordId?: string
+  targetWordId?: string,
+  localDateKey = getLocalCalendarDateKey()
 ): {
   nextProgress: GameProgress;
   result: HintResult;
   attemptProgress: LevelProgress;
 } {
+  registerRuntimeLevel(level);
   const historicalLevelProgress = getSavedLevelProgress(progress, level.id);
   const currentState = createGameState(
     level,
@@ -708,7 +894,8 @@ export function applyHintUsage(
           Boolean(attemptProgress)
         )
       },
-      words: nextWords
+      words: nextWords,
+      studyStats: recordActualHintEvent(progress.studyStats, reviewedAt, localDateKey)
     }),
     attemptProgress: stagedAttemptProgress,
     result: {
@@ -724,8 +911,10 @@ export function applyPronunciationHintUsage(
   progress: GameProgress,
   level: Level,
   attemptProgress?: LevelProgress,
-  targetWordId?: string
+  targetWordId?: string,
+  localDateKey = getLocalCalendarDateKey()
 ) {
+  registerRuntimeLevel(level);
   const historicalLevelProgress = getSavedLevelProgress(progress, level.id);
   const currentAttempt = attemptProgress ?? historicalLevelProgress;
   const nextAttemptProgress: LevelProgress = {
@@ -747,7 +936,12 @@ export function applyPronunciationHintUsage(
         nextAttemptProgress,
         Boolean(attemptProgress)
       )
-    }
+    },
+    studyStats: recordActualHintEvent(
+      progress.studyStats,
+      new Date().toISOString(),
+      localDateKey
+    )
   });
 
   return {
@@ -773,28 +967,50 @@ export function getReviewReasonSummary(progress: WordLearningProgress) {
 export function applyReviewSubmission(
   progress: GameProgress,
   wordId: string,
-  attempt: string
+  attempt: string,
+  localDateKey = getLocalCalendarDateKey()
 ) {
   const reviewedAt = new Date().toISOString();
-  const vocabularyWord = getWordById(wordId);
+  const vocabularyWord = getRuntimeVocabularyWordById(
+    canonicalizePersistedWordId(wordId)
+  );
   if (!vocabularyWord) {
     return { status: "unknown-word" as const, nextProgress: progress };
   }
-  const currentWordProgress = getSavedWordProgress(progress, wordId);
+  const canonicalWordId = vocabularyWord.id;
+  // Resolve through the caller's id first so an unmigrated legacy-keyed record
+  // is carried forward before we replace the key with the canonical namespace.
+  const sourceBook = getContentBookNumber(vocabularyWord.bookId);
+  const contentVersion = getRuntimeVocabularyWordContentVersion(canonicalWordId);
+  const currentWordProgress: WordLearningProgress = {
+    ...getSavedWordProgress(progress, wordId),
+    ...(sourceBook ? { sourceBook } : {}),
+    contentRating: vocabularyWord.rating,
+    ...(contentVersion ? { contentVersion } : {})
+  };
+  const migratedWords = { ...progress.words };
+  if (canonicalWordId !== wordId) {
+    delete migratedWords[wordId];
+  }
 
   if (normalizeWord(attempt) !== normalizeWord(vocabularyWord.word)) {
     const nextProgress = synchronizeProgressDerivedState({
       ...progress,
       words: {
-        ...progress.words,
-        [wordId]: markWordWrong(currentWordProgress, reviewedAt)
-      }
+        ...migratedWords,
+        [canonicalWordId]: markWordWrong(currentWordProgress, reviewedAt)
+      },
+      studyStats: recordLearningActivity(progress.studyStats, reviewedAt, localDateKey)
     });
 
     return { status: "wrong" as const, nextProgress };
   }
 
   const reviewedProgress = completeWordReview(currentWordProgress, reviewedAt);
+  const wasDue = Boolean(
+    currentWordProgress.nextReview &&
+    Date.parse(currentWordProgress.nextReview) <= Date.parse(reviewedAt)
+  );
   const scheduledProgress = scheduleNextReview(
     reviewedProgress,
     "correct",
@@ -803,9 +1019,12 @@ export function applyReviewSubmission(
   const nextProgress = synchronizeProgressDerivedState({
     ...progress,
     words: {
-      ...progress.words,
-      [wordId]: scheduledProgress
-    }
+      ...migratedWords,
+      [canonicalWordId]: scheduledProgress
+    },
+    studyStats: wasDue
+      ? recordCompletedDueReview(progress.studyStats, reviewedAt, localDateKey)
+      : recordLearningActivity(progress.studyStats, reviewedAt, localDateKey)
   });
 
   return { status: "correct" as const, nextProgress };
@@ -814,9 +1033,10 @@ export function applyReviewSubmission(
 export function applyConfirmedPronunciationHint(
   progress: GameProgress,
   levelId: string,
-  targetWordId: string
+  targetWordId: string,
+  localDateKey = getLocalCalendarDateKey()
 ) {
-  const level = getLevelById(levelId);
+  const level = getRuntimeLevelById(levelId);
   const targetExists = level?.targetWords.some((word) => word.id === targetWordId);
   if (!level || !targetExists) {
     return {
@@ -841,7 +1061,8 @@ export function applyConfirmedPronunciationHint(
     progress,
     level,
     latestAttempt,
-    targetWordId
+    targetWordId,
+    localDateKey
   );
   return { status: "applied" as const, ...result };
 }

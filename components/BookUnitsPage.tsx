@@ -3,20 +3,31 @@
 import Link from "next/link";
 import { CoinBar } from "@/components/CoinBar";
 import { GameLogo } from "@/components/GameLogo";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { UnitCard } from "@/components/UnitCard";
-import { getBookProgress, getUnitProgress, getUnitStatus } from "@/lib/levelLoader";
-import { useGameStore } from "@/store/gameStore";
-import type { VocabularyBook, VocabularyUnit } from "@/types/game";
+import {
+  getAllLevels,
+  getBookProgress,
+  getUnitProgress,
+} from "@/lib/curriculum-index";
+import { selectActiveGameProgress, useGameStore } from "@/store/gameStore";
+import type { CurriculumBookIndex, CurriculumUnitIndex } from "@/types/game";
+import { useI18n } from "@/lib/use-i18n";
+import { getBookNumber } from "@/lib/curriculum-presentation";
+import { canAccessBook, getEligibleUnitStatus } from "@/lib/content-access";
+import { selectActiveProfile } from "@/store/gameStore";
 
 type BookUnitsPageProps = {
-  book: VocabularyBook;
-  units: VocabularyUnit[];
+  book: CurriculumBookIndex;
+  units: CurriculumUnitIndex[];
 };
 
 export function BookUnitsPage({ book, units }: BookUnitsPageProps) {
-  const coins = useGameStore((state) => state.coins);
-  const savedLevels = useGameStore((state) => state.levels);
-  const savedWords = useGameStore((state) => state.words);
+  const { t } = useI18n();
+  const bookNumber = getBookNumber(book.id);
+  const activeProgress = useGameStore(selectActiveGameProgress);
+  const activeProfile = useGameStore(selectActiveProfile);
+  const { coins, levels: savedLevels, words: savedWords } = activeProgress;
   const bookProgress = getBookProgress(book.id, savedLevels, savedWords);
 
   return (
@@ -29,33 +40,47 @@ export function BookUnitsPage({ book, units }: BookUnitsPageProps) {
                 href="/books"
                 className="focus-ring inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-paper px-4 py-2 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:bg-white"
               >
-                Back to books
+                {t("nav.backBooks")}
               </Link>
               <GameLogo />
               <div>
-                <p className="text-sm font-black uppercase text-mint">{book.level}</p>
-                <h1 className="mt-1 text-3xl font-black text-ink">{book.title}</h1>
-                <p className="mt-1 text-base font-bold text-coral">{book.subtitle}</p>
+                <p className="text-sm font-black uppercase text-mint">
+                  {t("common.cefr", { level: book.level })}
+                </p>
+                <h1 className="mt-1 text-3xl font-black text-ink">
+                  {t("book.displayTitle", { book: bookNumber })}
+                </h1>
+                <p className="mt-1 text-base font-bold text-coral">
+                  {t("book.displaySubtitle")}
+                </p>
               </div>
               <p className="max-w-2xl text-base font-semibold text-ink/80">
-                {book.description}
+                {t("book.displayDescription")}
               </p>
               <div className="flex flex-wrap gap-3 text-sm font-bold text-ink/75">
-                <span>{book.unitIds.length} units</span>
-                <span>{book.estimatedWordCount ?? 0} estimated words</span>
-                <span>{bookProgress.completedLevels}/{bookProgress.totalLevels} levels complete</span>
-                <span>{bookProgress.learnedWords} learned words</span>
-                <span>{bookProgress.completionPercent}% complete</span>
+                <span>{t("common.units", { count: book.unitIds.length })}</span>
+                <span>{t("common.estimatedWords", { count: book.estimatedWordCount ?? 0 })}</span>
+                <span>{t("common.levelsComplete", { done: bookProgress.completedLevels, total: bookProgress.totalLevels })}</span>
+                <span>{t("common.learnedWords", { count: bookProgress.learnedWords })}</span>
+                <span>{t("common.percentComplete", { count: bookProgress.completionPercent })}</span>
               </div>
             </div>
-            <CoinBar coins={coins} />
+            <div className="flex flex-wrap gap-3">
+              <LanguageSwitcher />
+              <CoinBar coins={coins} />
+            </div>
           </div>
         </header>
 
         <section className="grid gap-4 lg:grid-cols-2">
           {units.map((unit) => {
             const progress = getUnitProgress(unit.id, savedLevels, savedWords);
-            const status = getUnitStatus(unit.id, savedLevels);
+            const status = getEligibleUnitStatus(
+              getAllLevels(),
+              unit.id,
+              savedLevels,
+              activeProfile
+            );
 
             return (
               <UnitCard
@@ -65,6 +90,7 @@ export function BookUnitsPage({ book, units }: BookUnitsPageProps) {
                 progress={progress}
                 status={status}
                 levelCount={progress.totalLevels}
+                locked={!canAccessBook(activeProfile, book)}
               />
             );
           })}
