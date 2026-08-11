@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../l10n/app_strings.dart';
 import '../models/player_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/age_band_selector.dart';
 import '../widgets/app_shell.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -17,7 +18,7 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _nicknameController = TextEditingController();
-  AgeBand _ageBand = AgeBand.tenToTwelve;
+  AgeBand _ageBand = AgeBand.allAges;
   UiLanguage _language = UiLanguage.chinese;
 
   @override
@@ -69,17 +70,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
-                SegmentedButton<AgeBand>(
-                  showSelectedIcon: false,
-                  segments: AgeBand.values
-                      .map(
-                        (age) =>
-                            ButtonSegment(value: age, label: Text(age.value)),
-                      )
-                      .toList(growable: false),
-                  selected: {_ageBand},
-                  onSelectionChanged: (value) =>
-                      setState(() => _ageBand = value.first),
+                AgeBandSelector(
+                  selected: _ageBand,
+                  strings: t,
+                  onChanged: (value) => setState(() => _ageBand = value),
                 ),
                 const SizedBox(height: 20),
                 _ModeCard(

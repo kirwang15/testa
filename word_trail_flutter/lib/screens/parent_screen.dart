@@ -86,17 +86,6 @@ class ParentScreen extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 10),
-          TrailCard(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline_rounded, color: AppColors.amber),
-                const SizedBox(width: 12),
-                Expanded(child: Text(t('parent.content'))),
-              ],
-            ),
-          ),
         ],
       ),
     );

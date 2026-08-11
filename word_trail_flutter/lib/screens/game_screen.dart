@@ -42,6 +42,9 @@ class _GameScreenState extends State<GameScreen> {
   bool _attemptStarted = false;
 
   Future<LevelBundle> _load() async {
+    if (!widget.controller.canAccessLevel(widget.levelId)) {
+      throw ArgumentError.value(widget.levelId, 'levelId', 'Level is locked');
+    }
     final bundle = await widget.controller.repository.loadLevel(widget.levelId);
     final progress = widget.controller.progressFor(widget.levelId);
     if (!widget.replay) _solved.addAll(progress.solvedWordIds);
@@ -71,13 +74,12 @@ class _GameScreenState extends State<GameScreen> {
         );
       }
       if (snapshot.hasError || !snapshot.hasData) {
+        final language =
+            widget.controller.activeProfile?.uiLanguage ?? UiLanguage.english;
+        final t = AppStrings(language);
         return AppShell(
           appBar: AppBar(),
-          child: const TrailCard(
-            child: Text(
-              'This level could not be loaded. Return to the map and try again.',
-            ),
-          ),
+          child: TrailCard(child: Text(t('game.loadError'))),
         );
       }
       final bundle = snapshot.data!;
@@ -92,20 +94,19 @@ class _GameScreenState extends State<GameScreen> {
     final profile = widget.controller.activeProfile!;
     final t = AppStrings(profile.uiLanguage);
     final level = bundle.level;
+    final track = widget.controller.catalog.track(level.trackId);
     final activeWord = level.words.firstWhere(
       (word) => word.id == _activeWordId,
     );
     final progress = widget.controller.progressFor(level.id);
     final complete = _solved.length == level.words.length;
+    final showBeginnerCoach =
+        !widget.replay && widget.controller.completedLevelCount == 0;
+    final beginnerCoachText = _beginnerCoachText(level, activeWord, t);
     return AppShell(
       maxWidth: 1240,
       appBar: AppBar(
-        title: Text(
-          t('home.continueDesc', {
-            'book': level.bookNumber,
-            'level': level.levelNumber,
-          }),
-        ),
+        title: Text(t.levelLocation(track, level.levelNumber)),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -144,6 +145,7 @@ class _GameScreenState extends State<GameScreen> {
           final desktop = constraints.maxWidth >= 900;
           final board = _BoardColumn(
             level: level,
+            trackTitle: t.trackTitle(track),
             solved: _solved,
             draft: _draft,
             activeWordId: activeWord.id,
@@ -161,6 +163,7 @@ class _GameScreenState extends State<GameScreen> {
           );
           final clue = _ClueColumn(
             level: level,
+            track: track,
             bundle: bundle,
             activeWord: activeWord,
             solved: _solved,
@@ -169,6 +172,7 @@ class _GameScreenState extends State<GameScreen> {
             t: t,
             clueLanguage: profile.clueLanguage,
             complete: complete,
+            beginnerCoachText: showBeginnerCoach ? beginnerCoachText : null,
             onSelectWord: (id) => setState(() {
               _activeWordId = id;
               _feedback = null;
@@ -185,7 +189,8 @@ class _GameScreenState extends State<GameScreen> {
               MaterialPageRoute(
                 builder: (_) => MapScreen(
                   controller: widget.controller,
-                  initialBook: level.bookNumber,
+                  curriculumId: level.curriculumId,
+                  initialTrackId: level.trackId,
                 ),
               ),
             ),
@@ -200,23 +205,41 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
           );
-          if (desktop) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 12, child: board),
-                const SizedBox(width: 18),
-                Expanded(flex: 8, child: clue),
-              ],
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [clue, const SizedBox(height: 16), board],
-          );
+          final gameContent = desktop
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 12, child: board),
+                    const SizedBox(width: 18),
+                    Expanded(flex: 8, child: clue),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [clue, const SizedBox(height: 16), board],
+                );
+          return gameContent;
         },
       ),
     );
+  }
+
+  String _beginnerCoachText(
+    CourseLevel level,
+    TargetWord activeWord,
+    AppStrings t,
+  ) {
+    if (_feedback?.type == GameFeedbackType.wrong) {
+      return t('guide.gameWrong');
+    }
+    if (_solved.isNotEmpty) return t('guide.gameSolved');
+    final filled = activeWord.cells.every(
+      (point) =>
+          _fixedLetter(level, point) != null || _draft.containsKey(point),
+    );
+    if (filled) return t('guide.gameCheck');
+    final hasInput = activeWord.cells.any(_draft.containsKey);
+    return t(hasInput ? 'guide.gameTyping' : 'guide.gameStart');
   }
 
   void _selectPoint(CourseLevel level, GridPoint point) {
@@ -418,6 +441,7 @@ class _GameScreenState extends State<GameScreen> {
 class _BoardColumn extends StatelessWidget {
   const _BoardColumn({
     required this.level,
+    required this.trackTitle,
     required this.solved,
     required this.draft,
     required this.activeWordId,
@@ -432,6 +456,7 @@ class _BoardColumn extends StatelessWidget {
   });
 
   final CourseLevel level;
+  final String trackTitle;
   final Set<String> solved;
   final Map<GridPoint, String> draft;
   final String activeWordId;
@@ -451,10 +476,7 @@ class _BoardColumn extends StatelessWidget {
       Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            t('common.book', {'book': level.bookNumber}),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          Text(trackTitle, style: Theme.of(context).textTheme.titleLarge),
           Text(
             progressText,
             style: const TextStyle(
@@ -467,6 +489,7 @@ class _BoardColumn extends StatelessWidget {
       const SizedBox(height: 10),
       CrosswordBoard(
         level: level,
+        strings: t,
         solvedWordIds: solved,
         draftLetters: draft,
         activeWordId: activeWordId,
@@ -474,7 +497,11 @@ class _BoardColumn extends StatelessWidget {
       ),
       const SizedBox(height: 14),
       Center(
-        child: LetterWheel(letters: inputLetters, onLetter: onLetter),
+        child: LetterWheel(
+          letters: inputLetters,
+          onLetter: onLetter,
+          strings: t,
+        ),
       ),
       const SizedBox(height: 10),
       Wrap(
@@ -506,6 +533,7 @@ class _BoardColumn extends StatelessWidget {
 class _ClueColumn extends StatelessWidget {
   const _ClueColumn({
     required this.level,
+    required this.track,
     required this.bundle,
     required this.activeWord,
     required this.solved,
@@ -514,6 +542,7 @@ class _ClueColumn extends StatelessWidget {
     required this.t,
     required this.clueLanguage,
     required this.complete,
+    required this.beginnerCoachText,
     required this.onSelectWord,
     required this.onToggleLanguage,
     required this.onListen,
@@ -524,6 +553,7 @@ class _ClueColumn extends StatelessWidget {
   });
 
   final CourseLevel level;
+  final CourseTrack track;
   final LevelBundle bundle;
   final TargetWord activeWord;
   final Set<String> solved;
@@ -532,6 +562,7 @@ class _ClueColumn extends StatelessWidget {
   final AppStrings t;
   final UiLanguage clueLanguage;
   final bool complete;
+  final String? beginnerCoachText;
   final ValueChanged<String> onSelectWord;
   final VoidCallback onToggleLanguage;
   final VoidCallback onListen;
@@ -562,11 +593,23 @@ class _ClueColumn extends StatelessWidget {
                       t('game.currentClue'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    Text(
-                      t('game.selectClue'),
-                      style: const TextStyle(
-                        color: Color(0xBFFFE7B0),
-                        fontSize: 12,
+                    Semantics(
+                      liveRegion: beginnerCoachText != null,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Text(
+                          beginnerCoachText ?? t('game.selectClue'),
+                          key: ValueKey(beginnerCoachText),
+                          style: TextStyle(
+                            color: beginnerCoachText == null
+                                ? const Color(0xBFFFE7B0)
+                                : AppColors.amber,
+                            fontSize: 12,
+                            fontWeight: beginnerCoachText == null
+                                ? FontWeight.w600
+                                : FontWeight.w800,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -659,10 +702,7 @@ class _ClueColumn extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  t('game.source', {
-                    'book': activeWord.source.book,
-                    'lesson': activeWord.source.lesson,
-                  }),
+                  t.sourceLabel(activeWord.source, track: track),
                   style: const TextStyle(
                     color: Color(0xBFFFE7B0),
                     fontSize: 12,
@@ -715,14 +755,19 @@ class _ClueColumn extends StatelessWidget {
           ],
           if (complete) ...[
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                progress.bestStars,
-                (_) => const Icon(
-                  Icons.star_rounded,
-                  color: AppColors.amber,
-                  size: 30,
+            Semantics(
+              label: t('semantics.stars', {'stars': progress.bestStars}),
+              child: ExcludeSemantics(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(
+                    progress.bestStars,
+                    (_) => const Icon(
+                      Icons.star_rounded,
+                      color: AppColors.amber,
+                      size: 30,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -752,26 +797,6 @@ class _ClueColumn extends StatelessWidget {
               ],
             ),
           ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(
-                Icons.science_outlined,
-                size: 16,
-                color: Color(0x99FFE7B0),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  '${t('game.beta')} · ${t('game.unofficial')}',
-                  style: const TextStyle(
-                    color: Color(0x99FFE7B0),
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );

@@ -1,8 +1,15 @@
 # Word Trail
 
-Word Trail is a private, local-first English crossword adventure for learners aged 7–15. A learner selects one clue, fills boxed letters, and completes connected across/down words that share crossing cells.
+Word Trail is a private, local-first English crossword adventure. The APK
+defaults to the all-ages 3+ content profile. A learner selects one clue, fills
+boxed letters, and completes connected across/down words that share crossing
+cells.
 
-The current build contains four New Concept English study scopes with 50 levels per book (200 levels, 800 unique spellings). It is an **unofficial personal learning tool**, not a Pearson product. The supplied course is an automated Beta index; it must not be described as licensed or fully human-reviewed.
+The APK contains 600 offline levels: four New Concept English study scopes with
+100 levels per book, plus 200 IELTS preparation vocabulary levels built from
+600 NAWL 1.2 headwords. It is an **unofficial personal learning tool**, not a
+Pearson or official IELTS product. Review status remains internal and must not
+be presented to learners as product feedback.
 
 ## Product experience
 
@@ -43,6 +50,27 @@ git diff --check
 npm audit
 ```
 
+### Android release APK
+
+Build and verify the private Android release artifact with:
+
+```bash
+npm run build:android-apk
+```
+
+The command produces one APK containing `armeabi-v7a` and `arm64-v8a`, rejects
+`x86_64` or any unexpected ABI, and fails unless the artifact is smaller than
+50,000,000 bytes. It generates content first and also rejects an APK whose
+embedded catalog is not exactly 2 curricula, 8 tracks, 400 NCE levels, and 200
+IELTS levels. To verify an existing build without rebuilding it, run:
+
+```bash
+npm run check:android-apk
+```
+
+The release build intentionally keeps the current private debug signing. Replace
+it with a protected production keystore before any public distribution.
+
 `npm run test:e2e` expects an existing production build and uses `npm run start`. Install the Playwright Chromium binary once if the local machine does not already have it. Browser CLI execution should be explicitly approved in controlled environments.
 
 ## Architecture
@@ -66,7 +94,8 @@ The server-rendered level route receives only `levelId + contentVersion`. The br
 
 `npm run generate:content-runtime` creates:
 
-- 200 formal level bundles;
+- 400 formal NCE level bundles and 200 formal IELTS preparation bundles for Flutter;
+- one answer-free Flutter curriculum catalog with eight tracks;
 - 25 hidden Legacy Practice bundles;
 - answer-free curriculum and review indexes;
 - content-addressed manifest metadata.
@@ -75,14 +104,23 @@ Runtime generation is deterministic and never fetches remote content.
 
 ### Formal content gates
 
-- Four books × 50 levels.
-- 800 globally unique spellings.
-- 3 words in levels 1–15, 4 in levels 16–35, 5 in levels 36–50.
+- Four NCE books × 100 levels. Core levels 1–50 are compatibility-locked;
+  reinforcement levels 51–100 cover the same 200 words in new groups.
+- NCE core and reinforcement each use 3 words in their first 15 levels, 4 in
+  the next 20, and 5 in the final 15.
+- Four IELTS preparation stages × 50 levels, with 3 unique NAWL words per level.
+- IELTS groups are solved globally from formally valid triples, then ordered so
+  average NAWL frequency rank increases across the four stages.
+- 800 unique NCE spellings and 600 unique IELTS-course spellings. Identical
+  spellings across curricula retain separate word ids and progress.
 - Complete Book/Lesson/edition/provenance metadata.
 - `rows <= 11` and `cols <= 11`.
 - Exactly one connected component, at least one across and one down word, and at least one crossing per word.
 - Continuous letter runs must exactly match configured targets.
 - Missing source, placeholder copy, duplicate spelling, unsafe clue, disconnected layout, or incomplete runtime bundle blocks generation.
+- Formal IELTS spellings are alphabetic and 3–10 letters; all-ages word and
+  source-definition filters plus their exclusions/replacements are recorded in
+  the authoring manifest.
 
 See [Content authoring](docs/content-authoring.md) before changing course data.
 

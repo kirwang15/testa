@@ -14,6 +14,7 @@ enum StorageStatus {
   recovered,
   writeFailed,
   unsupportedVersion,
+  contentUnavailable,
 }
 
 class AppController extends ChangeNotifier {
@@ -21,7 +22,9 @@ class AppController extends ChangeNotifier {
     : repository = repository ?? CourseRepository(),
       _store = store ?? LocalStore();
 
-  static const storageVersion = 3;
+  static const storageVersion = 4;
+  static const defaultCurriculumId = 'nce-1997';
+
   final CourseRepository repository;
   final LocalStore _store;
 
@@ -31,10 +34,32 @@ class AppController extends ChangeNotifier {
 
   bool get isReady => storageStatus != StorageStatus.loading;
   bool get hasProfile => activeProfile != null;
+  bool get needsGettingStarted =>
+      activeProfile != null && !activeProfile!.hasSeenGettingStarted;
   List<PlayerProfile> get profiles => _profiles.values.toList(growable: false);
   PlayerProfile? get activeProfile => _profiles[_activeProfileId];
+  CurriculumCatalog get catalog => repository.catalog!;
+  String get contentVersion => catalog.contentVersion;
+
+  Curriculum get activeCurriculum {
+    final requested = activeProfile?.activeCurriculumId ?? defaultCurriculumId;
+    return catalog.curricula.firstWhere(
+      (item) => item.id == requested,
+      orElse: () => catalog.curricula.first,
+    );
+  }
+
+  List<CourseTrack> get activeTracks => catalog.tracksFor(activeCurriculum.id);
 
   Future<void> initialize() async {
+    try {
+      await repository.loadCatalog();
+    } catch (_) {
+      storageStatus = StorageStatus.contentUnavailable;
+      notifyListeners();
+      return;
+    }
+
     final raw = await _store.read();
     if (raw == null || raw.trim().isEmpty) {
       storageStatus = StorageStatus.ready;
@@ -50,28 +75,34 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      if (version != storageVersion) {
+      if (version != 3 && version != storageVersion) {
         throw const FormatException('Unsupported legacy Flutter save');
       }
       final rawProfiles = json['profiles'] as Map<String, dynamic>? ?? const {};
       _profiles = rawProfiles.map((key, value) {
         final parsed = PlayerProfile.fromJson(value as Map<String, dynamic>);
+        final curriculumId =
+            catalog.curricula.any(
+              (item) => item.id == parsed.activeCurriculumId,
+            )
+            ? parsed.activeCurriculumId
+            : defaultCurriculumId;
         return MapEntry(
           key,
-          parsed.id == key
-              ? parsed
-              : PlayerProfile(
-                  id: key,
-                  nickname: parsed.nickname,
-                  ageBand: parsed.ageBand,
-                  uiLanguage: parsed.uiLanguage,
-                  clueLanguage: parsed.clueLanguage,
-                  createdAt: parsed.createdAt,
-                  coins: parsed.coins,
-                  levels: parsed.levels,
-                  review: parsed.review,
-                  activeDates: parsed.activeDates,
-                ),
+          PlayerProfile(
+            id: key,
+            nickname: parsed.nickname,
+            ageBand: parsed.ageBand,
+            uiLanguage: parsed.uiLanguage,
+            clueLanguage: parsed.clueLanguage,
+            createdAt: parsed.createdAt,
+            activeCurriculumId: curriculumId,
+            hasSeenGettingStarted: parsed.hasSeenGettingStarted,
+            coins: parsed.coins,
+            levels: parsed.levels,
+            review: parsed.review,
+            activeDates: parsed.activeDates,
+          ),
         );
       });
       final requestedActive = json['activeProfileId'] as String?;
@@ -79,6 +110,7 @@ class AppController extends ChangeNotifier {
           ? requestedActive
           : (_profiles.isEmpty ? null : _profiles.keys.first);
       storageStatus = StorageStatus.ready;
+      if (version == 3) unawaited(_persist());
     } catch (_) {
       _profiles = {};
       _activeProfileId = null;
@@ -106,6 +138,7 @@ class AppController extends ChangeNotifier {
         uiLanguage: uiLanguage,
         clueLanguage: UiLanguage.english,
         createdAt: now,
+        hasSeenGettingStarted: false,
       ),
     };
     _activeProfileId = id;
@@ -117,6 +150,19 @@ class AppController extends ChangeNotifier {
     if (!_profiles.containsKey(id) || id == _activeProfileId) return;
     _activeProfileId = id;
     _commit();
+  }
+
+  void selectCurriculum(String curriculumId) {
+    final profile = activeProfile;
+    if (profile == null || profile.activeCurriculumId == curriculumId) return;
+    catalog.curriculum(curriculumId);
+    _replaceActive(profile.copyWith(activeCurriculumId: curriculumId));
+  }
+
+  void completeGettingStarted() {
+    final profile = activeProfile;
+    if (profile == null || profile.hasSeenGettingStarted) return;
+    _replaceActive(profile.copyWith(hasSeenGettingStarted: true));
   }
 
   void updatePreferences({
@@ -141,20 +187,34 @@ class AppController extends ChangeNotifier {
   int get completedLevelCount =>
       activeProfile?.levels.values.where((item) => item.completed).length ?? 0;
 
-  int completedInBook(int book) =>
-      activeProfile?.levels.entries
-          .where(
-            (entry) =>
-                entry.key.startsWith('nce-1997-b$book-') &&
-                entry.value.completed,
-          )
-          .length ??
-      0;
+  int completedInCurriculum(String curriculumId) {
+    final ids = catalog
+        .levelsForCurriculum(curriculumId)
+        .map((entry) => entry.id)
+        .toSet();
+    return activeProfile?.levels.entries
+            .where((entry) => ids.contains(entry.key) && entry.value.completed)
+            .length ??
+        0;
+  }
+
+  int completedInTrack(String trackId) {
+    final ids = catalog
+        .levelsForTrack(trackId)
+        .map((entry) => entry.id)
+        .toSet();
+    return activeProfile?.levels.entries
+            .where((entry) => ids.contains(entry.key) && entry.value.completed)
+            .length ??
+        0;
+  }
+
+  int completedInBook(int book) => completedInTrack('nce-1997-b$book');
 
   int get dueReviewCount {
     final now = DateTime.now();
     return activeProfile?.review.values
-            .where((item) => item.isDue(now))
+            .where((item) => item.isDue(now) && _canReview(item))
             .length ??
         0;
   }
@@ -163,39 +223,66 @@ class AppController extends ChangeNotifier {
     final now = DateTime.now();
     final items =
         activeProfile?.review.values
-            .where((item) => item.isDue(now))
+            .where((item) => item.isDue(now) && _canReview(item))
             .toList(growable: false) ??
         [];
     items.sort((a, b) => a.dueAt.compareTo(b.dueAt));
     return items;
   }
 
+  List<CatalogLevel> accessibleLevelsFor(String curriculumId) => catalog
+      .levelsForCurriculum(curriculumId)
+      .where((entry) => canAccessLevel(entry.id))
+      .toList(growable: false);
+
   String get continueLevelId {
+    final levels = accessibleLevelsFor(activeCurriculum.id);
+    if (levels.isEmpty) {
+      throw StateError('No accessible levels in ${activeCurriculum.id}');
+    }
     final profile = activeProfile;
-    final maxBook = profile?.ageBand.maxBook ?? 1;
-    return repository
-        .levelIdsThroughBook(maxBook)
+    return levels
         .firstWhere(
-          (id) => !(profile?.levels[id]?.completed ?? false),
-          orElse: () => CourseRepository.levelId(maxBook, 50),
+          (entry) => !(profile?.levels[entry.id]?.completed ?? false),
+          orElse: () => levels.last,
+        )
+        .id;
+  }
+
+  bool canAccessBook(int book) =>
+      book <= (activeProfile?.ageBand.maxBook ?? AgeBand.allAges.maxBook);
+
+  bool canAccessTrack(String trackId) {
+    final track = catalog.track(trackId);
+    if (track.curriculumId != defaultCurriculumId) return true;
+    return track.order <=
+        (activeProfile?.ageBand.maxBook ?? AgeBand.allAges.maxBook);
+  }
+
+  bool canAccessLevel(String id) {
+    final entry = catalog.level(id);
+    return canAccessTrack(entry.trackId) &&
+        (activeProfile?.ageBand ?? AgeBand.allAges).canAccessRating(
+          entry.rating,
         );
   }
 
-  bool canAccessBook(int book) => book <= (activeProfile?.ageBand.maxBook ?? 1);
-
-  bool canAccessLevel(String id) {
-    final match = RegExp(r'-b(\d)-').firstMatch(id);
-    return match != null && canAccessBook(int.parse(match.group(1)!));
-  }
-
   String? nextLevelId(CourseLevel level) {
-    if (level.levelNumber < 50) {
-      return CourseRepository.levelId(level.bookNumber, level.levelNumber + 1);
-    }
-    if (level.bookNumber < (activeProfile?.ageBand.maxBook ?? 1)) {
-      return CourseRepository.levelId(level.bookNumber + 1, 1);
+    final levels = catalog.levelsForCurriculum(level.curriculumId);
+    final index = levels.indexWhere((entry) => entry.id == level.id);
+    if (index < 0) return null;
+    for (final entry in levels.skip(index + 1)) {
+      if (canAccessLevel(entry.id)) return entry.id;
     }
     return null;
+  }
+
+  bool _canReview(ReviewDebt item) {
+    try {
+      return canAccessLevel(item.levelId);
+    } on ArgumentError {
+      return false;
+    }
   }
 
   void beginAttempt(String levelId) {
@@ -313,6 +400,8 @@ class AppController extends ChangeNotifier {
         uiLanguage: profile.uiLanguage,
         clueLanguage: profile.clueLanguage,
         createdAt: profile.createdAt,
+        activeCurriculumId: profile.activeCurriculumId,
+        hasSeenGettingStarted: profile.hasSeenGettingStarted,
       ),
     );
   }
@@ -324,6 +413,7 @@ class AppController extends ChangeNotifier {
 
   void _commit() {
     notifyListeners();
+    if (storageStatus == StorageStatus.unsupportedVersion) return;
     unawaited(_persist());
   }
 
@@ -331,7 +421,7 @@ class AppController extends ChangeNotifier {
     final result = await _store.write(
       jsonEncode({
         'storageVersion': storageVersion,
-        'contentVersion': 'nce-1997-flutter-v1',
+        'contentVersion': contentVersion,
         'activeProfileId': _activeProfileId,
         'profiles': _profiles.map(
           (key, value) => MapEntry(key, value.toJson()),

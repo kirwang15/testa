@@ -119,19 +119,12 @@ export default function ParentPage() {
           <ParentContentAccessControl />
         </div>
 
-        <section className="mt-4 grid gap-3 sm:grid-cols-2">
+        <section className="mt-4">
           <article className="rounded-lg border-2 border-ink bg-mint/10 p-5 shadow-crisp">
             <ShieldCheck className="h-6 w-6 text-mint" aria-hidden="true" />
             <h2 className="mt-3 text-lg font-black text-ink">{t("parent.privacyTitle")}</h2>
             <p className="mt-1 text-sm font-semibold text-ink/65">
               {t("parent.privacyDescription")}
-            </p>
-          </article>
-          <article className="rounded-lg border-2 border-ink bg-sun/20 p-5 shadow-crisp">
-            <ShieldCheck className="h-6 w-6 text-coral" aria-hidden="true" />
-            <h2 className="mt-3 text-lg font-black text-ink">{t("parent.unofficialTitle")}</h2>
-            <p className="mt-1 text-sm font-semibold text-ink/65">
-              {t("parent.unofficialDescription")}
             </p>
           </article>
         </section>

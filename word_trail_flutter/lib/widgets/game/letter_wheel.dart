@@ -2,13 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_strings.dart';
 import '../../theme/app_theme.dart';
 
 class LetterWheel extends StatelessWidget {
-  const LetterWheel({super.key, required this.letters, required this.onLetter});
+  const LetterWheel({
+    super.key,
+    required this.letters,
+    required this.onLetter,
+    required this.strings,
+  });
 
   final List<String> letters;
   final ValueChanged<String> onLetter;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
@@ -66,21 +73,25 @@ class LetterWheel extends StatelessWidget {
               height: buttonSize,
               child: Semantics(
                 button: true,
-                label: 'Letter ${letters[index]}',
-                child: Material(
-                  color: const Color(0xFFF8F3EA),
-                  borderRadius: BorderRadius.circular(13),
-                  elevation: 4,
-                  child: InkWell(
+                label: strings('semantics.letterButton', {
+                  'letter': letters[index],
+                }),
+                child: ExcludeSemantics(
+                  child: Material(
+                    color: const Color(0xFFF8F3EA),
                     borderRadius: BorderRadius.circular(13),
-                    onTap: () => onLetter(letters[index]),
-                    child: Center(
-                      child: Text(
-                        letters[index],
-                        style: const TextStyle(
-                          color: Color(0xFF21130E),
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                    elevation: 4,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(13),
+                      onTap: () => onLetter(letters[index]),
+                      child: Center(
+                        child: Text(
+                          letters[index],
+                          style: const TextStyle(
+                            color: Color(0xFF21130E),
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),

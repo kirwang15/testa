@@ -33,6 +33,10 @@ describe("phase one support routes", () => {
     assert.match(home, /getAllBooks/);
     assert.match(map, /curriculum-index/);
     assert.doesNotMatch(map, /content-runtime|vocabulary-loader|targetWords|\.word\b/);
+    assert.doesNotMatch(
+      map,
+      /releaseLabel|level\.releaseStatus|map\.(?:demoReviewed|automatedBeta|licensed|legend)/
+    );
     assert.match(map, /grid-cols-5/);
   });
 
@@ -65,6 +69,7 @@ describe("phase one support routes", () => {
     assert.match(metrics, /actualHintEvents/);
     assert.match(metrics, /recordedWrongAttempts/);
     assert.match(parent, /ParentContentAccessControl/);
+    assert.doesNotMatch(parent, /parent\.unofficial/);
     assert.doesNotMatch(parent, /totalStudyMinutes|ability|rank|firstAttempt/i);
     assert.doesNotMatch(metrics, /totalStudyMinutes|prediction|rank/i);
   });
@@ -73,7 +78,7 @@ describe("phase one support routes", () => {
     const control = readFileSync("components/ParentContentAccessControl.tsx", "utf8");
     assert.match(control, /cancelRef\.current\?\.focus\(\)/);
     assert.match(control, /event\.key === "Escape"/);
-    assert.match(control, /privateTrialLimit/);
+    assert.doesNotMatch(control, /privateTrialLimit/);
     assert.ok(
       control.indexOf("ref={cancelRef}") < control.indexOf("onClick={confirm}"),
       "Cancel must precede the confirm action"

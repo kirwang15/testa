@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import '../l10n/app_strings.dart';
 import '../models/player_state.dart';
+import '../widgets/age_band_selector.dart';
 import '../widgets/app_shell.dart';
+import 'getting_started_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, required this.controller});
@@ -65,17 +67,11 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 12),
               _SettingBlock(
                 title: strings('settings.age'),
-                child: SegmentedButton<AgeBand>(
-                  showSelectedIcon: false,
-                  segments: AgeBand.values
-                      .map(
-                        (age) =>
-                            ButtonSegment(value: age, label: Text(age.value)),
-                      )
-                      .toList(),
-                  selected: {current.ageBand},
-                  onSelectionChanged: (value) =>
-                      controller.updatePreferences(ageBand: value.first),
+                child: AgeBandSelector(
+                  selected: current.ageBand,
+                  strings: strings,
+                  onChanged: (value) =>
+                      controller.updatePreferences(ageBand: value),
                 ),
               ),
               if (controller.profiles.length > 1) ...[
@@ -92,7 +88,7 @@ class SettingsScreen extends StatelessWidget {
                           (item) => DropdownMenuItem(
                             value: item.id,
                             child: Text(
-                              '${item.nickname} · ${item.ageBand.value}',
+                              '${item.nickname} · ${strings.ageBandLabel(item.ageBand)}',
                             ),
                           ),
                         )
@@ -103,6 +99,73 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(height: 12),
+              TrailCard(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => GettingStartedScreen(
+                      controller: controller,
+                      standalone: true,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.explore_outlined,
+                      color: Color(0xFFFFC45E),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            strings('settings.guide'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            strings('settings.guideDesc'),
+                            style: const TextStyle(color: Color(0xBFFFE7B0)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TrailCard(
+                onTap: () => _showSources(context, strings),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.library_books_outlined,
+                      color: Color(0xFFFFC45E),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            strings('settings.sources'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            strings('settings.sourcesDesc'),
+                            style: const TextStyle(color: Color(0xBFFFE7B0)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right_rounded),
+                  ],
+                ),
+              ),
               const SizedBox(height: 22),
               TrailCard(
                 child: Column(
@@ -167,6 +230,38 @@ class SettingsScreen extends StatelessWidget {
     );
     if (confirmed == true) await controller.resetActiveProfile();
   }
+
+  Future<void> _showSources(BuildContext context, AppStrings t) =>
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(t('settings.sources')),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(t('settings.sourcesNce')),
+                const SizedBox(height: 16),
+                Text(t('settings.sourcesNawl')),
+                const SizedBox(height: 8),
+                Text(
+                  t('settings.sourcesLicense'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 16),
+                Text(t('settings.sourcesIelts')),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(t('settings.close')),
+            ),
+          ],
+        ),
+      );
 }
 
 class _SettingBlock extends StatelessWidget {

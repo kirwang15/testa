@@ -10,17 +10,39 @@ Do not promote a word or level because tests pass. Automated validation proves s
 
 ## Required word fields
 
-Each formal word requires spelling, original English clue, Chinese meaning, part of speech, phonetic form, original example, CEFR, rating, Book, Lesson, edition `1997`, double-source verification, and a provenance id.
+Every formal word requires spelling, an original English clue, Chinese meaning,
+part of speech, phonetic form, an original example, CEFR, rating, source type,
+and a provenance id. NCE words additionally require Book, Lesson, edition
+`1997`, and double-source verification. NAWL words require list id `NAWL-1.2`
+and an official frequency rank.
 
 Rules:
 
 1. Use a licensed/user-owned source or a reference-only local snapshot with clearly recorded legal status.
-2. Map the word to Book/Lesson using two independent references.
+2. Map NCE words to Book/Lesson using two independent references. Select NAWL
+   words from the checked-in CC BY-SA 4.0 snapshot in frequency order.
 3. Write clues and examples locally; do not copy textbook sentences or a third-party dictionary wholesale.
-4. Keep the spelling alphabetic and no longer than 10 letters for the formal course.
+4. Keep the spelling alphabetic and 3–10 letters long for the formal crossword
+   course. Two-letter entries are recorded as structurally ineligible because
+   they cannot satisfy the required per-word crossing gate.
 5. A clue must explain the intended sense without containing the answer or a trivial morphological leak.
 6. Assign `all-ages`, `13-plus`, or `parent-review` based on meaning and context, not spelling alone.
 7. Keep automated work as `automated`; only a human reviewer may set `human-reviewed`.
+
+## Course topology
+
+- NCE uses four tracks with 100 levels each. Levels 1–50 are the immutable core
+  compatibility set; levels 51–100 regroup the same 200 spellings once for
+  reinforcement using the same `15×3 + 20×4 + 15×5` progression.
+- IELTS preparation uses four stages with 50 levels each. Every level contains
+  three words, and the complete course contains 600 unique NAWL spellings. The
+  generator solves one global 600-word exact cover over formally valid triples,
+  sorts solved groups by mean then maximum NAWL rank, and requires stage-average
+  rank to increase from stage 1 through stage 4.
+- Spellings must be unique inside one curriculum. The same spelling may exist
+  in separate curricula only when each course has a distinct word id.
+- User-visible copy must not expose `automated-beta` or other internal review
+  and validation terminology.
 
 ## Human review sheet
 
@@ -53,5 +75,27 @@ The optional local authoring tools can refine owned fields with Ollama, but thei
 node scripts/refine-nce-clues.cjs
 node scripts/refine-nce-examples.cjs
 ```
+
+The IELTS authoring source is generated offline from caller-provided official
+NAWL snapshots. It never fetches content at build or application runtime:
+
+```bash
+node scripts/author-ielts-nawl.cjs \
+  --dictionary /path/to/NAWL_gloss.html \
+  --alphabetized /path/to/NAWL_1.2_alphabetized_description.txt
+```
+
+The authoring manifest records the official snapshot hashes, model digest,
+two-layer all-ages word/definition filters, every exclusion and replacement,
+and the hash of any explicit editorial override. Overrides pass the same clue,
+example, Chinese, and leakage validator as model-authored entries.
+
+`npm run generate:content-runtime` then writes both the browser runtime and the
+Flutter `catalog.json` plus all 600 offline level bundles. Generation fails on
+count drift, source drift, a changed NCE core level, duplicate coverage,
+disconnected/oversized layouts, missing crossings, or incomplete metadata.
+The catalog `contentVersion` hashes resolved NCE words (including source and
+rating), content ratings, the NCE compatibility snapshot, the complete IELTS
+authoring document, and the generator implementation.
 
 Legacy ids and URLs are canonicalized under `legacy:` and are excluded from the formal daily course.

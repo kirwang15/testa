@@ -109,9 +109,6 @@ export function ParentContentAccessControl() {
               ? t("contentAccess.parentReviewWarning")
               : t("contentAccess.confirmDescription")}
           </p>
-          <p className="mt-2 text-xs font-bold text-ink/60">
-            {t("contentAccess.privateTrialLimit")}
-          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"

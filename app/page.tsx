@@ -155,7 +155,7 @@ export default function HomePage() {
               <p className="mt-2 text-xs font-black text-ink/55">
                 {t("home.reviewHeldCounts", {
                   restricted: restrictedDueCount,
-                  recoverable: recoverableDueCount
+                  unavailable: recoverableDueCount
                 })}
               </p>
             ) : null}

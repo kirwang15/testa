@@ -6,6 +6,7 @@ import { getActiveCluePresentation } from "../lib/clue-presentation";
 import {
   getChineseTranslations,
   getTranslationKeys,
+  messages,
   translate
 } from "../lib/i18n";
 import { LANGUAGE_BOOTSTRAP_SCRIPT } from "../lib/language-bootstrap";
@@ -20,6 +21,36 @@ describe("typed bilingual presentation", () => {
     assert.equal(keys.every((key) => Boolean(chinese[key].trim())), true);
     assert.equal(translate("en", "common.levels", { count: 50 }), "50 levels");
     assert.equal(translate("zh-CN", "common.levels", { count: 50 }), "50 关");
+  });
+
+  test("keeps internal release and QA language out of user-facing translations", () => {
+    const forbiddenCopy = [
+      /automated beta/i,
+      /自动审核\s*beta/i,
+      /demo reviewed/i,
+      /演示内容已审核/i,
+      /licensed content/i,
+      /已授权内容/i,
+      /source mappings?/i,
+      /反馈(?:也)?没有遮住棋盘/i,
+      /without covering the board/i,
+      /private (?:demo|trial)/i,
+      /私人(?:演示|试玩)/i,
+      /actual hint/i,
+      /实际提示/i,
+      /local (?:level file|puzzle)\b/i,
+      /本地关卡文件|安全读取本地关卡/i,
+      /due queue/i,
+      /到期队列/i,
+      /\brecoverable\b/i
+    ];
+
+    for (const [language, dictionary] of Object.entries(messages)) {
+      const userCopy = Object.values(dictionary).join("\n");
+      for (const forbidden of forbiddenCopy) {
+        assert.doesNotMatch(userCopy, forbidden, `${language}: ${forbidden}`);
+      }
+    }
   });
 
   test("returns only the selected clue language and defaults to English", () => {

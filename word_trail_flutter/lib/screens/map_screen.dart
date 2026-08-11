@@ -1,60 +1,105 @@
 import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
-import '../data/course_repository.dart';
 import '../l10n/app_strings.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shell.dart';
 import 'game_screen.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key, required this.controller, this.initialBook = 1});
+  const MapScreen({
+    super.key,
+    required this.controller,
+    required this.curriculumId,
+    this.initialTrackId,
+  });
 
   final AppController controller;
-  final int initialBook;
+  final String curriculumId;
+  final String? initialTrackId;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
-  late int _book = widget.initialBook;
+  late String _trackId;
+
+  @override
+  void initState() {
+    super.initState();
+    final tracks = widget.controller.catalog.tracksFor(widget.curriculumId);
+    _trackId = tracks.any((track) => track.id == widget.initialTrackId)
+        ? widget.initialTrackId!
+        : tracks.first.id;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final t = AppStrings(widget.controller.activeProfile!.uiLanguage);
-    final current = widget.controller.continueLevelId;
+    final controller = widget.controller;
+    final t = AppStrings(controller.activeProfile!.uiLanguage);
+    final curriculum = controller.catalog.curriculum(widget.curriculumId);
+    final tracks = controller.catalog.tracksFor(widget.curriculumId);
+    final track = controller.catalog.track(_trackId);
+    final levels = controller.catalog.levelsForTrack(_trackId);
+    final current = widget.curriculumId == controller.activeCurriculum.id
+        ? controller.continueLevelId
+        : null;
     return AppShell(
-      appBar: AppBar(title: Text(t('map.title'))),
+      appBar: AppBar(
+        title: Text(t('map.title', {'course': t.curriculumTitle(curriculum)})),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            t('map.subtitle'),
+            t('map.subtitle', {
+              'tracks': tracks.length,
+              'levels': controller.catalog
+                  .levelsForCurriculum(widget.curriculumId)
+                  .length,
+            }),
             style: const TextStyle(color: Color(0xCFFFE7B0)),
           ),
           const SizedBox(height: 16),
-          SegmentedButton<int>(
-            showSelectedIcon: false,
-            segments: List.generate(4, (index) {
-              final book = index + 1;
-              return ButtonSegment(
-                value: book,
-                label: Text('$book'),
-                icon: Icon(
-                  widget.controller.canAccessBook(book)
-                      ? Icons.menu_book_outlined
-                      : Icons.lock_outline_rounded,
-                  size: 18,
-                ),
-              );
-            }),
-            selected: {_book},
-            onSelectionChanged: (selection) =>
-                setState(() => _book = selection.first),
+          if (controller.completedInCurriculum(widget.curriculumId) == 0) ...[
+            TrailCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              highlighted: true,
+              child: Row(
+                children: [
+                  const Icon(Icons.touch_app_rounded, color: AppColors.amber),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(t('guide.mapTip'))),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: [
+                for (final item in tracks)
+                  ButtonSegment(
+                    value: item.id,
+                    label: Text(t.trackTitle(item)),
+                    icon: Icon(
+                      controller.canAccessTrack(item.id)
+                          ? Icons.menu_book_outlined
+                          : Icons.lock_outline_rounded,
+                      size: 18,
+                    ),
+                  ),
+              ],
+              selected: {_trackId},
+              onSelectionChanged: (selection) =>
+                  setState(() => _trackId = selection.first),
+            ),
           ),
           const SizedBox(height: 16),
-          if (!widget.controller.canAccessBook(_book))
+          if (!controller.canAccessTrack(_trackId))
             TrailCard(
               child: Row(
                 children: [
@@ -67,7 +112,12 @@ class _MapScreenState extends State<MapScreen> {
                 ],
               ),
             )
-          else
+          else ...[
+            Text(
+              t.trackTitle(track),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
                 final columns = constraints.maxWidth >= 900
@@ -78,71 +128,91 @@ class _MapScreenState extends State<MapScreen> {
                 return GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: 50,
+                  itemCount: levels.length,
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
                     mainAxisSpacing: 9,
                     crossAxisSpacing: 9,
                   ),
                   itemBuilder: (context, index) {
-                    final level = index + 1;
-                    final id = CourseRepository.levelId(_book, level);
-                    final progress = widget.controller.progressFor(id);
-                    final isCurrent = id == current;
+                    final entry = levels[index];
+                    final progress = controller.progressFor(entry.id);
+                    final accessible = controller.canAccessLevel(entry.id);
+                    final isCurrent = entry.id == current;
+                    final semanticLabel = !accessible
+                        ? t('map.levelLocked', {'level': entry.levelNumber})
+                        : progress.completed
+                        ? t('map.levelStars', {
+                            'level': entry.levelNumber,
+                            'stars': progress.bestStars,
+                          })
+                        : t('map.levelOpen', {'level': entry.levelNumber});
                     return Semantics(
                       button: true,
-                      label:
-                          '${t('common.level', {'level': level})}${progress.completed ? ', ${progress.bestStars} stars' : ''}',
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => GameScreen(
-                              controller: widget.controller,
-                              levelId: id,
-                              replay: progress.completed,
-                            ),
-                          ),
-                        ),
-                        child: Container(
-                          constraints: const BoxConstraints(
-                            minWidth: 44,
-                            minHeight: 44,
-                          ),
-                          decoration: BoxDecoration(
-                            color: progress.completed
-                                ? AppColors.green
-                                : isCurrent
-                                ? AppColors.wood
-                                : AppColors.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isCurrent
-                                  ? AppColors.amber
-                                  : const Color(0x33FFE7B0),
-                              width: isCurrent ? 2 : 1,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$level',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              if (progress.completed)
-                                Text(
-                                  '★' * progress.bestStars,
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                    fontSize: 9,
-                                    color: AppColors.amber,
-                                    height: 1,
+                      label: semanticLabel,
+                      child: ExcludeSemantics(
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: accessible
+                              ? () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => GameScreen(
+                                      controller: controller,
+                                      levelId: entry.id,
+                                      replay: progress.completed,
+                                    ),
                                   ),
-                                ),
-                            ],
+                                )
+                              : null,
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 44,
+                              minHeight: 44,
+                            ),
+                            decoration: BoxDecoration(
+                              color: !accessible
+                                  ? AppColors.surface.withValues(alpha: 0.45)
+                                  : progress.completed
+                                  ? AppColors.green
+                                  : isCurrent
+                                  ? AppColors.wood
+                                  : AppColors.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isCurrent && accessible
+                                    ? AppColors.amber
+                                    : const Color(0x33FFE7B0),
+                                width: isCurrent && accessible ? 2 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (!accessible)
+                                  const Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 18,
+                                    color: Color(0x99FFE7B0),
+                                  )
+                                else
+                                  Text(
+                                    '${entry.levelNumber}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                if (accessible && progress.completed)
+                                  Text(
+                                    '★' * progress.bestStars,
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      color: AppColors.amber,
+                                      height: 1,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -151,6 +221,7 @@ class _MapScreenState extends State<MapScreen> {
                 );
               },
             ),
+          ],
         ],
       ),
     );

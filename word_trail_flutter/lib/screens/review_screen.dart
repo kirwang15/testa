@@ -66,12 +66,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
             FutureBuilder<_ReviewPrompt>(
               future: _loadPrompt(due[_index.clamp(0, due.length - 1)]),
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return TrailCard(child: Text(t('game.loadError')));
+                }
                 if (!snapshot.hasData) {
                   return const TrailCard(
                     child: Center(child: CircularProgressIndicator()),
                   );
                 }
                 final prompt = snapshot.data!;
+                final track = widget.controller.catalog.track(
+                  prompt.level.trackId,
+                );
                 final clue = profile.clueLanguage == UiLanguage.english
                     ? prompt.word.englishClue
                     : prompt.word.chineseClue;
@@ -107,10 +113,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        t('game.source', {
-                          'book': prompt.word.source.book,
-                          'lesson': prompt.word.source.lesson,
-                        }),
+                        t.sourceLabel(prompt.word.source, track: track),
                         style: const TextStyle(
                           color: Color(0xBFFFE7B0),
                           fontSize: 12,
@@ -163,7 +166,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final word = bundle.level.words.firstWhere(
       (item) => item.id == debt.wordId,
     );
-    return _ReviewPrompt(debt, word);
+    return _ReviewPrompt(debt, bundle.level, word);
   }
 
   void _check(_ReviewPrompt prompt, int total, AppStrings t) {
@@ -181,7 +184,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
 }
 
 class _ReviewPrompt {
-  const _ReviewPrompt(this.debt, this.word);
+  const _ReviewPrompt(this.debt, this.level, this.word);
   final ReviewDebt debt;
+  final CourseLevel level;
   final TargetWord word;
 }

@@ -4,6 +4,7 @@ import 'app_controller.dart';
 import 'l10n/app_strings.dart';
 import 'models/player_state.dart';
 import 'screens/home_screen.dart';
+import 'screens/getting_started_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
@@ -52,8 +53,30 @@ class WordTrailApp extends StatelessWidget {
                   ),
                 ),
               )
+            : controller.storageStatus == StorageStatus.contentUnavailable ||
+                  controller.storageStatus == StorageStatus.unsupportedVersion
+            ? AppShell(
+                child: SizedBox(
+                  height: 520,
+                  child: Center(
+                    child: TrailCard(
+                      child: Text(
+                        strings(
+                          controller.storageStatus ==
+                                  StorageStatus.contentUnavailable
+                              ? 'storage.contentUnavailable'
+                              : 'storage.unsupported',
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              )
             : controller.hasProfile
-            ? HomeScreen(controller: controller)
+            ? controller.needsGettingStarted
+                  ? GettingStartedScreen(controller: controller)
+                  : HomeScreen(controller: controller)
             : OnboardingScreen(controller: controller),
       );
     },

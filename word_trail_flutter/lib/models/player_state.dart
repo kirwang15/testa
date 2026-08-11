@@ -1,6 +1,6 @@
 enum UiLanguage { english, chinese }
 
-enum AgeBand { sevenToNine, tenToTwelve, thirteenToFifteen }
+enum AgeBand { allAges, sevenToNine, tenToTwelve, thirteenToFifteen }
 
 extension UiLanguageValue on UiLanguage {
   String get value => this == UiLanguage.english ? 'en' : 'zh-CN';
@@ -11,21 +11,31 @@ extension UiLanguageValue on UiLanguage {
 
 extension AgeBandValue on AgeBand {
   String get value => switch (this) {
+    AgeBand.allAges => '3+',
     AgeBand.sevenToNine => '7-9',
     AgeBand.tenToTwelve => '10-12',
     AgeBand.thirteenToFifteen => '13-15',
   };
 
   int get maxBook => switch (this) {
+    AgeBand.allAges => 4,
     AgeBand.sevenToNine => 1,
     AgeBand.tenToTwelve => 2,
     AgeBand.thirteenToFifteen => 4,
   };
 
+  bool canAccessRating(String rating) => switch (rating) {
+    'all-ages' => true,
+    '13-plus' => this == AgeBand.thirteenToFifteen,
+    _ => false,
+  };
+
   static AgeBand parse(Object? value) => switch (value) {
+    '3+' => AgeBand.allAges,
     '7-9' => AgeBand.sevenToNine,
+    '10-12' => AgeBand.tenToTwelve,
     '13-15' => AgeBand.thirteenToFifteen,
-    _ => AgeBand.tenToTwelve,
+    _ => AgeBand.allAges,
   };
 }
 
@@ -142,6 +152,8 @@ class PlayerProfile {
     required this.uiLanguage,
     required this.clueLanguage,
     required this.createdAt,
+    this.activeCurriculumId = 'nce-1997',
+    this.hasSeenGettingStarted = true,
     this.coins = 0,
     this.levels = const {},
     this.review = const {},
@@ -154,6 +166,8 @@ class PlayerProfile {
   final UiLanguage uiLanguage;
   final UiLanguage clueLanguage;
   final DateTime createdAt;
+  final String activeCurriculumId;
+  final bool hasSeenGettingStarted;
   final int coins;
   final Map<String, LevelProgress> levels;
   final Map<String, ReviewDebt> review;
@@ -164,6 +178,8 @@ class PlayerProfile {
     AgeBand? ageBand,
     UiLanguage? uiLanguage,
     UiLanguage? clueLanguage,
+    String? activeCurriculumId,
+    bool? hasSeenGettingStarted,
     int? coins,
     Map<String, LevelProgress>? levels,
     Map<String, ReviewDebt>? review,
@@ -175,6 +191,8 @@ class PlayerProfile {
     uiLanguage: uiLanguage ?? this.uiLanguage,
     clueLanguage: clueLanguage ?? this.clueLanguage,
     createdAt: createdAt,
+    activeCurriculumId: activeCurriculumId ?? this.activeCurriculumId,
+    hasSeenGettingStarted: hasSeenGettingStarted ?? this.hasSeenGettingStarted,
     coins: coins ?? this.coins,
     levels: levels ?? this.levels,
     review: review ?? this.review,
@@ -188,6 +206,8 @@ class PlayerProfile {
     'uiLanguage': uiLanguage.value,
     'clueLanguage': clueLanguage.value,
     'createdAt': createdAt.toUtc().toIso8601String(),
+    'activeCurriculumId': activeCurriculumId,
+    'hasSeenGettingStarted': hasSeenGettingStarted,
     'coins': coins,
     'levels': levels.map((key, value) => MapEntry(key, value.toJson())),
     'review': review.map((key, value) => MapEntry(key, value.toJson())),
@@ -210,6 +230,13 @@ class PlayerProfile {
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '')?.toLocal() ??
           DateTime.now(),
+      activeCurriculumId:
+          (json['activeCurriculumId'] as String?)?.trim().isNotEmpty == true
+          ? json['activeCurriculumId'] as String
+          : 'nce-1997',
+      hasSeenGettingStarted: json.containsKey('hasSeenGettingStarted')
+          ? json['hasSeenGettingStarted'] == true
+          : true,
       coins: (json['coins'] as num? ?? 0).toInt().clamp(0, 999999999),
       levels: rawLevels.map(
         (key, value) => MapEntry(

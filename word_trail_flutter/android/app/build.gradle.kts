@@ -32,6 +32,12 @@ android {
 
     buildTypes {
         release {
+            // Override Flutter's build-type defaults so third-party native
+            // libraries cannot reintroduce x86_64 into the single APK.
+            ndk {
+                abiFilters.clear()
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            }
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")

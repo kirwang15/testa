@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "npm run generate:content-runtime && next dev",
-    "generate:content-runtime": "rm -rf .content-dist && tsc -p tsconfig.content.json && node scripts/generate-runtime-content.cjs && rm -rf .content-dist",
+    "generate:content-runtime": "rm -rf .content-dist && tsc -p tsconfig.content.json && node scripts/generate-runtime-content.cjs && node scripts/generate-mobile-curriculum.cjs && rm -rf .content-dist",
     "build": "npm run generate:content-runtime && next build && npm run check:bundle-boundaries",
+    "build:android-apk": "npm run generate:content-runtime && cd word_trail_flutter && flutter build apk --release --target-platform android-arm,android-arm64 && cd .. && node scripts/check-android-apk.cjs word_trail_flutter/build/app/outputs/flutter-apk/app-release.apk",
     "check:bundle-boundaries": "node scripts/check-bundle-boundaries.cjs",
+    "check:android-apk": "node scripts/check-android-apk.cjs word_trail_flutter/build/app/outputs/flutter-apk/app-release.apk",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "npm run generate:content-runtime && rm -rf .test-dist && tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",

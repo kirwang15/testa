@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../l10n/app_strings.dart';
-import '../models/player_state.dart';
+import '../models/course.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shell.dart';
 import 'game_screen.dart';
@@ -24,8 +24,11 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = controller.activeProfile!;
     final t = AppStrings(profile.uiLanguage);
+    final curriculum = controller.activeCurriculum;
+    final courseLevels = controller.catalog.levelsForCurriculum(curriculum.id);
     final continueId = controller.continueLevelId;
-    final match = RegExp(r'-b(\d)-level-(\d+)').firstMatch(continueId)!;
+    final continueEntry = controller.catalog.level(continueId);
+    final continueTrack = controller.catalog.track(continueEntry.trackId);
     return AppShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -71,6 +74,51 @@ class HomeScreen extends StatelessWidget {
             style: const TextStyle(color: Color(0xCFFFE7B0), fontSize: 16),
           ),
           const SizedBox(height: 20),
+          Text(
+            t('home.chooseCourse'),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 620;
+              final cards = controller.catalog.curricula
+                  .map(
+                    (item) => _CourseCard(
+                      curriculum: item,
+                      title: t.curriculumTitle(item),
+                      selected: item.id == curriculum.id,
+                      completed: controller.completedInCurriculum(item.id),
+                      total: controller.catalog
+                          .levelsForCurriculum(item.id)
+                          .length,
+                      t: t,
+                      onTap: () => controller.selectCurriculum(item.id),
+                    ),
+                  )
+                  .toList(growable: false);
+              if (narrow) {
+                return Column(
+                  children: [
+                    for (var index = 0; index < cards.length; index++) ...[
+                      cards[index],
+                      if (index < cards.length - 1) const SizedBox(height: 8),
+                    ],
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var index = 0; index < cards.length; index++) ...[
+                    Expanded(child: cards[index]),
+                    if (index < cards.length - 1) const SizedBox(width: 10),
+                  ],
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
           TrailCard(
             highlighted: true,
             onTap: () => _push(
@@ -97,16 +145,37 @@ class HomeScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (controller.completedLevelCount == 0) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.amber,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                          child: Text(
+                            t('guide.homeStart'),
+                            style: const TextStyle(
+                              color: AppColors.background,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                      ],
                       Text(
                         t('home.continue'),
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        t('home.continueDesc', {
-                          'book': int.parse(match.group(1)!),
-                          'level': int.parse(match.group(2)!),
-                        }),
+                        t.levelLocation(
+                          continueTrack,
+                          continueEntry.levelNumber,
+                        ),
                         style: const TextStyle(color: Color(0xCFFFE7B0)),
                       ),
                     ],
@@ -133,12 +202,17 @@ class HomeScreen extends StatelessWidget {
                 _QuickCard(
                   icon: Icons.map_outlined,
                   title: t('home.map'),
-                  subtitle: '200',
-                  onTap: () =>
-                      _push(context, MapScreen(controller: controller)),
+                  subtitle: t('home.mapCount', {'count': courseLevels.length}),
+                  onTap: () => _push(
+                    context,
+                    MapScreen(
+                      controller: controller,
+                      curriculumId: curriculum.id,
+                    ),
+                  ),
                 ),
                 _QuickCard(
-                  icon: Icons.family_restroom_rounded,
+                  icon: Icons.insights_outlined,
                   title: t('home.parent'),
                   subtitle: '${controller.completedLevelCount}',
                   onTap: () =>
@@ -147,7 +221,7 @@ class HomeScreen extends StatelessWidget {
                 _QuickCard(
                   icon: Icons.settings_outlined,
                   title: t('home.settings'),
-                  subtitle: profile.ageBand.value,
+                  subtitle: t.ageBandLabel(profile.ageBand),
                   onTap: () =>
                       _push(context, SettingsScreen(controller: controller)),
                 ),
@@ -169,20 +243,38 @@ class HomeScreen extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 10),
-          for (var book = 1; book <= 4; book++) ...[
-            _BookProgress(
-              book: book,
-              completed: controller.completedInBook(book),
-              locked: !controller.canAccessBook(book),
+          for (
+            var index = 0;
+            index < controller.activeTracks.length;
+            index++
+          ) ...[
+            _TrackProgress(
+              track: controller.activeTracks[index],
+              title: t.trackTitle(controller.activeTracks[index]),
+              completed: controller.completedInTrack(
+                controller.activeTracks[index].id,
+              ),
+              total: controller.catalog
+                  .levelsForTrack(controller.activeTracks[index].id)
+                  .length,
+              locked: !controller.canAccessTrack(
+                controller.activeTracks[index].id,
+              ),
               t: t,
-              onTap: controller.canAccessBook(book)
+              onTap:
+                  controller.canAccessTrack(controller.activeTracks[index].id)
                   ? () => _push(
                       context,
-                      MapScreen(controller: controller, initialBook: book),
+                      MapScreen(
+                        controller: controller,
+                        curriculumId: curriculum.id,
+                        initialTrackId: controller.activeTracks[index].id,
+                      ),
                     )
                   : null,
             ),
-            if (book < 4) const SizedBox(height: 8),
+            if (index < controller.activeTracks.length - 1)
+              const SizedBox(height: 8),
           ],
           const SizedBox(height: 16),
           Center(
@@ -199,6 +291,62 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CourseCard extends StatelessWidget {
+  const _CourseCard({
+    required this.curriculum,
+    required this.title,
+    required this.selected,
+    required this.completed,
+    required this.total,
+    required this.t,
+    required this.onTap,
+  });
+
+  final Curriculum curriculum;
+  final String title;
+  final bool selected;
+  final int completed;
+  final int total;
+  final AppStrings t;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => TrailCard(
+    highlighted: selected,
+    padding: const EdgeInsets.all(14),
+    onTap: onTap,
+    child: Row(
+      children: [
+        Icon(
+          curriculum.id == AppController.defaultCurriculumId
+              ? Icons.menu_book_rounded
+              : Icons.school_rounded,
+          color: AppColors.amber,
+          size: 30,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 3),
+              Text(
+                t('home.courseProgress', {'done': completed, 'total': total}),
+                style: const TextStyle(color: Color(0xBFFFE7B0), fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+          color: selected ? AppColors.amber : const Color(0x77FFE7B0),
+        ),
+      ],
+    ),
+  );
 }
 
 class _QuickCard extends StatelessWidget {
@@ -243,16 +391,20 @@ class _QuickCard extends StatelessWidget {
   );
 }
 
-class _BookProgress extends StatelessWidget {
-  const _BookProgress({
-    required this.book,
+class _TrackProgress extends StatelessWidget {
+  const _TrackProgress({
+    required this.track,
+    required this.title,
     required this.completed,
+    required this.total,
     required this.locked,
     required this.t,
     required this.onTap,
   });
-  final int book;
+  final CourseTrack track;
+  final String title;
   final int completed;
+  final int total;
   final bool locked;
   final AppStrings t;
   final VoidCallback? onTap;
@@ -272,13 +424,10 @@ class _BookProgress extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                t('common.book', {'book': book}),
-                style: const TextStyle(fontWeight: FontWeight.w900),
-              ),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
               LinearProgressIndicator(
-                value: locked ? 0 : completed / 50,
+                value: locked || total == 0 ? 0 : completed / total,
                 minHeight: 7,
                 borderRadius: BorderRadius.circular(99),
                 backgroundColor: const Color(0x332F1B13),
@@ -288,7 +437,7 @@ class _BookProgress extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Text(
-          locked ? t('common.locked') : '$completed/50',
+          locked ? t('common.locked') : '$completed/$total',
           style: const TextStyle(
             fontWeight: FontWeight.w800,
             color: Color(0xCFFFE7B0),

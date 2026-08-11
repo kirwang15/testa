@@ -22,7 +22,6 @@ import {
 } from "@/store/gameStore";
 import type {
   ContentRating,
-  ContentReleaseStatus,
   CurriculumLevelIndex
 } from "@/types/game";
 
@@ -67,11 +66,6 @@ export default function MapPage() {
     ? getBookProgress(selectedBook.id, progress.levels, progress.words)
     : undefined;
 
-  const releaseLabel = (status: ContentReleaseStatus) => {
-    if (status === "demo-reviewed") return t("map.demoReviewed");
-    if (status === "licensed-production") return t("map.licensed");
-    return t("map.automatedBeta");
-  };
   const ratingLabel = (rating: ContentRating) => {
     if (rating === "13-plus") return t("map.thirteenPlus");
     if (rating === "parent-review") return t("map.parentReview");
@@ -192,29 +186,10 @@ export default function MapPage() {
                     current={current}
                     accessible={accessible}
                     stateLabel={stateLabel}
-                    releaseLabel={releaseLabel(level.releaseStatus)}
                     ratingLabel={ratingLabel(level.rating)}
                   />
                 );
               })}
-            </div>
-
-            <div
-              className="mt-4 grid gap-2 border-t-2 border-ink/10 pt-4 text-xs font-bold text-ink/65 sm:grid-cols-3"
-              aria-label={t("map.legend")}
-            >
-              <p className="flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 py-2">
-                <span className="h-4 w-4 rounded border-2 border-mint" aria-hidden="true" />
-                {t("map.legendCurrent")}
-              </p>
-              <p className="flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 py-2">
-                <span className="h-3 w-3 rounded-full bg-leaf" aria-hidden="true" />
-                {t("map.legendDemo")}
-              </p>
-              <p className="flex min-h-11 items-center gap-2 rounded-lg bg-white px-3 py-2">
-                <span className="h-3 w-3 rounded-full bg-sun" aria-hidden="true" />
-                {t("map.legendBeta")}
-              </p>
             </div>
           </section>
         ) : null}
@@ -232,7 +207,6 @@ type LevelMarkerProps = {
   current: boolean;
   accessible: boolean;
   stateLabel: string;
-  releaseLabel: string;
   ratingLabel: string;
 };
 
@@ -245,7 +219,6 @@ function LevelMarker({
   current,
   accessible,
   stateLabel,
-  releaseLabel,
   ratingLabel
 }: LevelMarkerProps) {
   const { t } = useI18n();
@@ -261,7 +234,6 @@ function LevelMarker({
         level: levelNumber,
         stars,
         state: stateLabel,
-        release: releaseLabel,
         rating: ratingLabel
       });
   const content = (
@@ -277,12 +249,6 @@ function LevelMarker({
         )}
         {stars}/3
       </span>
-      <span
-        className={`absolute right-1 top-1 h-2 w-2 rounded-full ${
-          level.releaseStatus === "demo-reviewed" ? "bg-leaf" : "bg-sun"
-        }`}
-        aria-hidden="true"
-      />
     </>
   );
 
