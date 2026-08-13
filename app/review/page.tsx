@@ -525,7 +525,22 @@ export default function ReviewPage() {
               </p>
               {current.word.source ? (
                 <p className="mt-2 text-xs font-bold text-ink/55">
-                  {safeText(t("game.source", { book: current.word.source.book, lesson: current.word.source.lesson }))}
+                  {safeText(
+                    current.word.source.type === "ielts"
+                      ? t("game.sourceIelts", {
+                          list: current.word.source.listId,
+                          rank: current.word.source.rank
+                        })
+                      : current.word.source.type === "kaoyan"
+                        ? t("game.sourceKaoyan", {
+                            list: current.word.source.listId,
+                            rank: current.word.source.rank
+                          })
+                        : t("game.source", {
+                            book: current.word.source.book,
+                            lesson: current.word.source.lesson
+                          })
+                  )}
                 </p>
               ) : null}
             </div>

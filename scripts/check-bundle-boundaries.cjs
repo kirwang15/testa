@@ -172,9 +172,9 @@ function routeWordsFromBundle(bundle) {
   });
 }
 
-if (curriculumIndex.levels.length !== 200) {
+if (curriculumIndex.levels.length !== 800) {
   throw new Error(
-    `Expected 200 formal levels, found ${curriculumIndex.levels.length}.`
+    `Expected 800 formal levels, found ${curriculumIndex.levels.length}.`
   );
 }
 
@@ -236,7 +236,7 @@ const coreArtifactCount = coreStats.reduce(
 );
 
 console.log(
-  `answer boundary: checked ${gameStats.length}/200 formal level routes (${gameArtifactCount} HTML/RSC/segment artifacts)`
+  `answer boundary: checked ${gameStats.length}/800 formal level routes (${gameArtifactCount} HTML/RSC/segment artifacts)`
 );
 console.log(
   `answer boundary: checked ${coreStats.length} non-game routes (${coreArtifactCount} HTML/RSC/segment artifacts)`

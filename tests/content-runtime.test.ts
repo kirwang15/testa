@@ -217,10 +217,18 @@ describe("isolated runtime content delivery", () => {
     }
   });
 
-  test("publishes an answer-free 4/20/200 index and isolated files", () => {
+  test("publishes an answer-free 3/12/800 catalog and isolated files", () => {
+    assert.equal(curriculumIndex.curricula?.length, 3);
+    assert.equal(curriculumIndex.tracks?.length, 12);
     assert.equal(curriculumIndex.books.length, 4);
     assert.equal(curriculumIndex.units.length, 20);
-    assert.equal(curriculumIndex.levels.length, 200);
+    assert.equal(curriculumIndex.levels.length, 800);
+    assert.deepEqual(
+      Object.fromEntries(
+        (curriculumIndex.curricula ?? []).map((course) => [course.id, course.levelCount])
+      ),
+      { "nce-1997": 400, "ielts-nawl-v1": 200, "kaoyan-core-v1": 200 }
+    );
     const serialized = JSON.stringify(curriculumIndex);
     assert.doesNotMatch(serialized, /englishMeaning|chineseMeaning|targetWords|wordIds|letters/);
     assert.doesNotMatch(serialized, /nce-1997-b1-what|Question word asking for a thing/);
@@ -233,11 +241,11 @@ describe("isolated runtime content delivery", () => {
       )
     ) as LevelRuntimeBundle;
     assert.equal(runtime.level.id, first.id);
-    assert.equal(runtime.level.targetWords.length, first.wordCount);
+    assert.ok(runtime.level.targetWords.length >= 3);
     assert.equal(runtime.contentVersion, curriculumIndex.contentVersion);
 
     const wordFiles = readdirSync("public/content/runtime/words");
-    assert.equal(wordFiles.length, 899);
+    assert.equal(wordFiles.length, 2099);
     for (const file of wordFiles) {
       const payload: unknown = JSON.parse(
         readFileSync(`public/content/runtime/words/${file}`, "utf8")

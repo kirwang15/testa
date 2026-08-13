@@ -8,10 +8,15 @@ import type {
   VocabularyWord
 } from "@/types/game";
 import generatedIndex from "../src/content/vocabulary/generated/curriculum-index.json";
-
-const levelRegistry = new Map<string, Level>();
-const vocabularyRegistry = new Map<string, RuntimeVocabularyWord>();
-const vocabularyVersionRegistry = new Map<string, string>();
+import { getProgressLevelById } from "./curriculum-progress-index";
+import {
+  getRuntimeLevelById,
+  getRuntimeVocabularyWordById,
+  getRuntimeVocabularyWordContentVersion,
+  registerRuntimeLevel,
+  registerRuntimeVocabularyWord,
+  resetRuntimeRegistry
+} from "./runtime-registry";
 const curriculumIndex = generatedIndex as CurriculumIndex;
 const curriculumLevelById = new Map(
   curriculumIndex.levels.map((level) => [level.id, level])
@@ -165,12 +170,15 @@ export function validateLevelRuntimeBundle(
   }
 
   const expected = curriculumLevelById.get(value.level.id);
+  const compactExpected = getProgressLevelById(value.level.id);
   if (
     expected &&
-    (expected.rating !== value.rating ||
-      expected.releaseStatus !== value.releaseStatus ||
-      expected.wordCount !== value.level.targetWords.length ||
-      expected.layoutRevision !== value.level.layoutRevision)
+    ((compactExpected?.rating ?? expected.rating ?? "all-ages") !== value.rating ||
+      (expected.releaseStatus !== undefined &&
+        expected.releaseStatus !== value.releaseStatus) ||
+      (compactExpected?.wordCount ?? expected.wordCount) !== value.level.targetWords.length ||
+      (expected.layoutRevision !== undefined &&
+        expected.layoutRevision !== value.level.layoutRevision))
   ) {
     return false;
   }
@@ -183,34 +191,16 @@ export function registerLevelRuntimeBundle(bundle: LevelRuntimeBundle) {
   }
   registerRuntimeLevel(bundle.level);
   for (const word of bundle.vocabulary) {
-    vocabularyRegistry.set(word.id, word);
-    vocabularyVersionRegistry.set(word.id, bundle.contentVersion);
+    registerRuntimeVocabularyWord(word, word.rating, bundle.contentVersion);
   }
 }
-
-export function registerRuntimeLevel(level: Level) {
-  levelRegistry.set(level.id, level);
-}
-
-export function registerRuntimeVocabularyWord(
-  word: VocabularyWord,
-  rating: ContentRating = "all-ages"
-) {
-  vocabularyRegistry.set(word.id, { ...word, rating });
-  vocabularyVersionRegistry.delete(word.id);
-}
-
-export function getRuntimeLevelById(levelId: string) {
-  return levelRegistry.get(levelId);
-}
-
-export function getRuntimeVocabularyWordById(wordId: string) {
-  return vocabularyRegistry.get(wordId);
-}
-
-export function getRuntimeVocabularyWordContentVersion(wordId: string) {
-  return vocabularyVersionRegistry.get(wordId);
-}
+export {
+  getRuntimeLevelById,
+  getRuntimeVocabularyWordById,
+  getRuntimeVocabularyWordContentVersion,
+  registerRuntimeLevel,
+  registerRuntimeVocabularyWord
+};
 
 export async function loadLevelRuntimeBundle(
   levelId: string,
@@ -240,8 +230,8 @@ export async function loadRuntimeVocabularyWord(
   if (contentVersion !== curriculumIndex.contentVersion) {
     return undefined;
   }
-  const cached = vocabularyRegistry.get(wordId);
-  const cachedVersion = vocabularyVersionRegistry.get(wordId);
+  const cached = getRuntimeVocabularyWordById(wordId);
+  const cachedVersion = getRuntimeVocabularyWordContentVersion(wordId);
   if (cached && cachedVersion === contentVersion) {
     return cached;
   }
@@ -255,8 +245,11 @@ export async function loadRuntimeVocabularyWord(
     if (!validateRuntimeVocabularyWordBundle(candidate, wordId, contentVersion)) {
       return undefined;
     }
-    vocabularyRegistry.set(candidate.word.id, candidate.word);
-    vocabularyVersionRegistry.set(candidate.word.id, candidate.contentVersion);
+    registerRuntimeVocabularyWord(
+      candidate.word,
+      candidate.word.rating,
+      candidate.contentVersion
+    );
     return candidate.word;
   } catch {
     return undefined;
@@ -275,7 +268,5 @@ export async function loadRuntimeVocabularyWords(
 }
 
 export function resetRuntimeContentForTests() {
-  levelRegistry.clear();
-  vocabularyRegistry.clear();
-  vocabularyVersionRegistry.clear();
+  resetRuntimeRegistry();
 }

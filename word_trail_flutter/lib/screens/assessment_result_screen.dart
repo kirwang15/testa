@@ -100,7 +100,26 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (invalid)
+          Text(
+            _t('assessment.rangeHeadline', {
+              'lower': _number(widget.result.estimateLower),
+              'upper': widget.result.estimateUpper >= 20000
+                  ? '20,000+'
+                  : _number(widget.result.estimateUpper),
+            }),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineLarge,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _t('assessment.estimate', {
+              'estimate': _number(widget.result.estimate),
+            }),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xCFFFE7B0)),
+          ),
+          const SizedBox(height: 20),
+          if (invalid) ...[
             TrailCard(
               highlighted: true,
               child: Column(
@@ -123,30 +142,8 @@ class _AssessmentResultScreenState extends State<AssessmentResultScreen> {
                   ),
                 ],
               ),
-            )
-          else ...[
-            Text(
-              _t('assessment.estimate', {
-                'estimate': _number(widget.result.estimate),
-              }),
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineLarge,
             ),
-            const SizedBox(height: 8),
-            Text(
-              _t(
-                widget.result.estimateUpper >= 20000
-                    ? 'assessment.upperRange'
-                    : 'assessment.range',
-                {
-                  'lower': _number(widget.result.estimateLower),
-                  'upper': _number(widget.result.estimateUpper),
-                },
-              ),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xCFFFE7B0)),
-            ),
-            const SizedBox(height: 20),
+          ] else ...[
             _CoverageCard(values: profile, targetLabel: _targetLabel(), t: _t),
             const SizedBox(height: 18),
             Center(

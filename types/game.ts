@@ -57,13 +57,43 @@ export type PlayerProfile = {
   contentAccessOverride: boolean;
 };
 
-export type VocabularySource = {
+export type NceVocabularySource = {
+  type?: "nce";
   book: 1 | 2 | 3 | 4;
   lesson: number;
   edition: "1997";
   verification: "double-source";
+  listId?: never;
+  rank?: never;
   provenanceId: string;
 };
+
+export type IeltsVocabularySource = {
+  type: "ielts";
+  listId: string;
+  rank: number;
+  book?: never;
+  lesson?: never;
+  edition?: never;
+  verification?: never;
+  provenanceId: string;
+};
+
+export type KaoyanVocabularySource = {
+  type: "kaoyan";
+  listId: string;
+  rank: number;
+  book?: never;
+  lesson?: never;
+  edition?: never;
+  verification?: never;
+  provenanceId: string;
+};
+
+export type VocabularySource =
+  | NceVocabularySource
+  | IeltsVocabularySource
+  | KaoyanVocabularySource;
 
 export type VocabularyImportLevel = {
   id: string;
@@ -172,6 +202,9 @@ export type CurriculumLevelIndex = {
   id: string;
   bookId: string;
   unitId: string;
+  curriculumId?: string;
+  trackId?: string;
+  levelNumber?: number;
   title?: string;
   difficulty?: LevelDifficulty;
   wordCount: number;
@@ -179,6 +212,23 @@ export type CurriculumLevelIndex = {
   layoutRevision?: string;
   releaseStatus: ContentReleaseStatus;
   rating: ContentRating;
+};
+
+export type CurriculumCourseIndex = {
+  id: string;
+  titleEn: string;
+  titleZh: string;
+  trackIds: string[];
+  levelCount: number;
+};
+
+export type CurriculumTrackIndex = {
+  id: string;
+  curriculumId: string;
+  titleEn: string;
+  titleZh: string;
+  order: number;
+  levelIds?: string[];
 };
 
 export type CurriculumUnitIndex = {
@@ -189,7 +239,7 @@ export type CurriculumUnitIndex = {
   difficulty: CEFRLevel;
   estimatedMinutes?: number;
   wordCount: number;
-  levelIds: string[];
+  levelIds?: string[];
 };
 
 export type CurriculumBookIndex = {
@@ -207,6 +257,8 @@ export type CurriculumBookIndex = {
 export type CurriculumIndex = {
   contentVersion: string;
   generatedAt: string;
+  curricula?: CurriculumCourseIndex[];
+  tracks?: CurriculumTrackIndex[];
   books: CurriculumBookIndex[];
   units: CurriculumUnitIndex[];
   levels: CurriculumLevelIndex[];
@@ -229,6 +281,9 @@ export type Level = {
   id: string;
   bookId: string;
   unitId: string;
+  curriculumId?: string;
+  trackId?: string;
+  levelNumber?: number;
   title?: string;
   letters: string[];
   targetWords: TargetWord[];

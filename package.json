@@ -5,7 +5,7 @@
   "scripts": {
     "author:kaoyan-core": "node scripts/author-kaoyan-core.cjs",
     "dev": "npm run generate:content-runtime && next dev",
-    "generate:content-runtime": "rm -rf .content-dist && tsc -p tsconfig.content.json && node scripts/generate-runtime-content.cjs && node scripts/generate-mobile-curriculum.cjs && rm -rf .content-dist",
+    "generate:content-runtime": "rm -rf .content-dist && tsc -p tsconfig.content.json && node scripts/generate-mobile-curriculum.cjs && node scripts/generate-runtime-content.cjs && rm -rf .content-dist",
     "build": "npm run generate:content-runtime && next build && npm run check:bundle-boundaries",
     "build:android-apk": "npm run generate:content-runtime && cd word_trail_flutter && flutter build apk --release --target-platform android-arm,android-arm64 && cd .. && node scripts/check-android-apk.cjs word_trail_flutter/build/app/outputs/flutter-apk/app-release.apk",
     "check:bundle-boundaries": "node scripts/check-bundle-boundaries.cjs",

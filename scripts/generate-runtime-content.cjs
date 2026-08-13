@@ -20,8 +20,8 @@ const { createReviewWordKey } = require(resolve(
   ".content-dist/src/lib/review-metadata-key.js"
 ));
 
-const RUNTIME_FORMAT_VERSION = 2;
-const RUNTIME_GENERATOR_VERSION = "runtime-content-v2-content-addressed";
+const RUNTIME_FORMAT_VERSION = 3;
+const RUNTIME_GENERATOR_VERSION = "runtime-content-v3-multi-curriculum";
 
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -76,22 +76,46 @@ function ratingForWordId(wordId) {
 const runtimeRoot = resolve(ROOT, "public/content/runtime");
 const levelRoot = resolve(runtimeRoot, "levels");
 const wordRoot = resolve(runtimeRoot, "words");
+const assessmentRoot = resolve(ROOT, "public/content/assessment");
 rmSync(runtimeRoot, { recursive: true, force: true });
+rmSync(assessmentRoot, { recursive: true, force: true });
 mkdirSync(levelRoot, { recursive: true });
 mkdirSync(wordRoot, { recursive: true });
+mkdirSync(assessmentRoot, { recursive: true });
 
 const primaryBooks = compiledLoader.getAllBooks();
 const primaryUnits = compiledLoader.getAllUnits();
-const generatedPrimaryLevels = compiledLoader.getResolvedLevels({ mode: "learning" });
 const generatedLegacyLevels = compiledLoader.getLegacyResolvedLevels({ mode: "learning" });
-const allWords = [
-  ...compiledLoader.getAllWords(),
-  ...compiledLoader.getLegacyRegistryWords()
-];
-const runtimeWords = allWords.map((word) => ({
+const mobileCatalogPath = "word_trail_flutter/assets/content/catalog.json";
+const mobileCatalog = JSON.parse(readFileSync(resolve(ROOT, mobileCatalogPath), "utf8"));
+const mobileBundles = mobileCatalog.levels.map((entry) => {
+  const bundle = JSON.parse(readFileSync(resolve(ROOT, "word_trail_flutter", entry.assetPath), "utf8"));
+  if (
+    bundle.contentVersion !== mobileCatalog.contentVersion ||
+    bundle.level?.id !== entry.id ||
+    bundle.level?.curriculumId !== entry.curriculumId ||
+    bundle.level?.trackId !== entry.trackId
+  ) {
+    throw new Error(`Mobile level bundle is inconsistent: ${entry.id}`);
+  }
+  return bundle;
+});
+const primaryLevels = mobileBundles.map((bundle) => bundle.level);
+const mobileWordsById = new Map();
+for (const bundle of mobileBundles) {
+  for (const word of bundle.vocabulary) {
+    const existing = mobileWordsById.get(word.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(word)) {
+      throw new Error(`Mobile vocabulary drifted across levels: ${word.id}`);
+    }
+    mobileWordsById.set(word.id, word);
+  }
+}
+const legacyWords = compiledLoader.getLegacyRegistryWords().map((word) => ({
   ...word,
   rating: ratingForWordId(word.id)
 }));
+const runtimeWords = [...mobileWordsById.values(), ...legacyWords];
 const wordById = new Map(runtimeWords.map((word) => [word.id, word]));
 const unknownRatingIds = [...PARENT_REVIEW_IDS, ...THIRTEEN_PLUS_IDS].filter(
   (wordId) => !wordById.has(wordId)
@@ -100,7 +124,7 @@ if (unknownRatingIds.length > 0) {
   throw new Error(`Unknown content rating ids: ${unknownRatingIds.join(", ")}`);
 }
 
-const structuralLevels = [...generatedPrimaryLevels, ...generatedLegacyLevels].map(
+const structuralLevels = [...primaryLevels, ...generatedLegacyLevels].map(
   (level) => ({
     id: level.id,
     bookId: level.bookId,
@@ -125,6 +149,10 @@ const inputHashes = {
   vocabularyLoader: sha256File("src/lib/vocabulary-loader.ts"),
   reviewMetadataKey: sha256File("src/lib/review-metadata-key.ts"),
   runtimeGenerator: sha256File("scripts/generate-runtime-content.cjs"),
+  mobileCatalog: sha256File(mobileCatalogPath),
+  assessmentBank: sha256File(
+    "word_trail_flutter/assets/content/assessment/bank-v1.json"
+  ),
   layouts: layoutHash,
   runtimeContent: sha256Json({
     words: runtimeWords,
@@ -188,23 +216,34 @@ function bindLayoutRevision(level) {
   };
 }
 
-const primaryLevels = generatedPrimaryLevels.map(bindLayoutRevision);
 const legacyLevels = generatedLegacyLevels.map(bindLayoutRevision);
 
-for (const level of [...primaryLevels, ...legacyLevels]) {
+for (const sourceBundle of mobileBundles) {
+  const level = sourceBundle.level;
+  const vocabulary = sourceBundle.vocabulary;
+  const bundle = {
+    contentVersion,
+    level,
+    vocabulary,
+    releaseStatus: sourceBundle.releaseStatus,
+    rating: sourceBundle.rating
+  };
+  writeJson(resolve(levelRoot, `${toRuntimeFileKey(level.id)}.json`), bundle);
+}
+
+for (const level of legacyLevels) {
   const vocabulary = level.targetWords
     .map((target) =>
       target.vocabularyWordId ? wordById.get(target.vocabularyWordId) : undefined
     )
     .filter(Boolean);
-  const bundle = {
+  writeJson(resolve(levelRoot, `${toRuntimeFileKey(level.id)}.json`), {
     contentVersion,
     level,
     vocabulary,
     releaseStatus: "automated-beta",
     rating: ratingForWords(vocabulary)
-  };
-  writeJson(resolve(levelRoot, `${toRuntimeFileKey(level.id)}.json`), bundle);
+  });
 }
 
 for (const word of runtimeWords) {
@@ -217,7 +256,10 @@ for (const word of runtimeWords) {
 const reviewMetadataEntries = Object.fromEntries(
   runtimeWords.map((word) => [
     createReviewWordKey(word.id),
-    [Number(word.bookId.match(/(?:nce-1997-b|legacy:nce-)([1-4])/)[1]), word.rating]
+    [
+      Number(word.bookId.match(/(?:nce-1997-b|legacy:nce-)([1-4])/)?.[1] ?? 1),
+      word.rating
+    ]
   ])
 );
 if (Object.keys(reviewMetadataEntries).length !== runtimeWords.length) {
@@ -227,12 +269,32 @@ writeJson(resolve(runtimeRoot, "review-metadata.json"), {
   contentVersion,
   entries: reviewMetadataEntries
 });
+writeFileSync(
+  resolve(assessmentRoot, "bank-v1.json"),
+  readFileSync(
+    resolve(ROOT, "word_trail_flutter/assets/content/assessment/bank-v1.json")
+  )
+);
 
 const unitById = new Map(primaryUnits.map((unit) => [unit.id, unit]));
 const levelById = new Map(primaryLevels.map((level) => [level.id, level]));
+const bundleByLevelId = new Map(mobileBundles.map((bundle) => [bundle.level.id, bundle]));
 const index = {
   contentVersion,
   generatedAt: contentIdentityManifest.generatedAt,
+  curricula: mobileCatalog.curricula.map((curriculum) => ({
+    ...curriculum,
+    levelCount: mobileCatalog.levels.filter(
+      (level) => level.curriculumId === curriculum.id
+    ).length
+  })),
+  tracks: mobileCatalog.tracks.map((track) => ({
+    id: track.id,
+    curriculumId: track.curriculumId,
+    titleEn: track.titleEn,
+    titleZh: track.titleZh,
+    order: track.order
+  })),
   books: primaryBooks.map((book) => ({
     id: book.id,
     title: book.title,
@@ -244,43 +306,40 @@ const index = {
     contentKind: "curriculum",
     unitIds: [...book.unitIds]
   })),
-  units: primaryUnits.map((unit) => ({
-    id: unit.id,
-    bookId: unit.bookId,
-    title: unit.title,
-    lessonRange: unit.lessonRange,
-    difficulty: unit.difficulty,
-    estimatedMinutes: unit.estimatedMinutes,
-    wordCount: unit.wordIds.length,
-    levelIds: (unit.levels ?? []).map((level) => level.id)
-  })),
+  units: primaryUnits.map((unit) => {
+    const unitLevels = primaryLevels.filter((level) => level.unitId === unit.id);
+    return {
+      id: unit.id,
+      bookId: unit.bookId,
+      title: unit.title,
+      lessonRange: unit.lessonRange,
+      difficulty: unit.difficulty,
+      estimatedMinutes: unit.estimatedMinutes,
+      wordCount: new Set(
+        unitLevels.flatMap((level) =>
+          level.targetWords.map((target) => target.vocabularyWordId ?? target.id)
+        )
+      ).size
+    };
+  }),
   levels: primaryLevels.map((level) => {
-    const unit = unitById.get(level.unitId);
-    const definition = unit?.levels?.find((entry) => entry.id === level.id);
-    const vocabulary = level.targetWords
-      .map((target) =>
-        target.vocabularyWordId ? wordById.get(target.vocabularyWordId) : undefined
-      )
-      .filter(Boolean);
+    const source = bundleByLevelId.get(level.id);
     return {
       id: level.id,
-      bookId: level.bookId,
-      unitId: level.unitId,
-      title: level.title,
-      difficulty: level.difficulty,
-      wordCount: level.targetWords.length,
-      lessonAnchor: definition?.lessonAnchor,
-      layoutRevision: level.layoutRevision,
-      releaseStatus: "automated-beta",
-      rating: ratingForWords(vocabulary)
+      ...(source.rating === "all-ages" ? {} : { rating: source.rating })
     };
   })
 };
 
 if (
+  index.curricula.length !== 3 ||
+  index.tracks.length !== 12 ||
   index.books.length !== 4 ||
   index.units.length !== 20 ||
-  index.levels.length !== 200 ||
+  index.levels.length !== 800 ||
+  index.levels.filter((level) => level.id.startsWith("nce-1997-")).length !== 400 ||
+  index.levels.filter((level) => level.id.startsWith("ielts-nawl-v1-")).length !== 200 ||
+  index.levels.filter((level) => level.id.startsWith("kaoyan-core-v1-")).length !== 200 ||
   new Set(index.levels.map((level) => level.id)).size !== index.levels.length ||
   index.levels.some((level) => !levelById.has(level.id))
 ) {
@@ -292,6 +351,15 @@ writeJson(
   index
 );
 writeJson(
+  resolve(ROOT, "src/content/vocabulary/generated/level-rating-codes.json"),
+  primaryLevels.flatMap((level, index) => {
+    const rating = bundleByLevelId.get(level.id).rating;
+    return rating === "all-ages"
+      ? []
+      : [index, rating === "13-plus" ? 1 : 2];
+  })
+);
+writeJson(
   resolve(ROOT, "src/content/vocabulary/generated/content-manifest.json"),
   contentIdentityManifest
 );
@@ -300,7 +368,7 @@ writeJson(resolve(runtimeRoot, "manifest.json"), {
   generatedAt: index.generatedAt,
   levelCount: primaryLevels.length,
   legacyLevelCount: legacyLevels.length,
-  wordCount: allWords.length,
+  wordCount: runtimeWords.length,
   formatVersion: RUNTIME_FORMAT_VERSION,
   generatorVersion,
   sourceHashes,
@@ -313,5 +381,5 @@ writeJson(resolve(runtimeRoot, "manifest.json"), {
 });
 
 console.log(
-  `Generated ${primaryLevels.length} primary level bundles, ${legacyLevels.length} legacy bundles, and ${allWords.length} word records.`
+  `Generated ${primaryLevels.length} primary level bundles, ${legacyLevels.length} legacy bundles, and ${runtimeWords.length} word records.`
 );

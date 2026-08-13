@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Word Trail · 单词冒险",
-  description: "适合青少年的纯本地英语填字冒险。"
+  description: "适合 3 岁以上全年龄段的纯本地英语词汇学习与快速估算工具。"
 };
 
 export default function RootLayout({

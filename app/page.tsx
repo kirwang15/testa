@@ -4,15 +4,15 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { GameLogo } from "@/components/GameLogo";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { CourseCatalog } from "@/components/CourseCatalog";
 import {
-  getAllBooks,
-  getAllLevels,
-  getBookProgress,
-  getLevelsByBookId,
-  getProgressSummary,
-} from "@/lib/curriculum-index";
+  compactBooks,
+  getCompactBookProgress,
+  getProgressLevelsByBookId,
+  getProgressLevelsByCurriculumId
+} from "@/lib/curriculum-progress-index";
 import { getRecommendedEligibleLevel } from "@/lib/content-access";
-import { curriculumContentVersion } from "@/lib/curriculum-index";
+import { GAME_CONTENT_VERSION } from "@/lib/storage";
 import { loadReviewMetadataIndex } from "@/lib/review-metadata";
 import { getDueReviewSnapshot } from "@/lib/review-queue";
 import { useI18n } from "@/lib/use-i18n";
@@ -31,10 +31,13 @@ export default function HomePage() {
   const [reviewMetadataStatus, setReviewMetadataStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
-  const books = getAllBooks();
-  const progressSummary = getProgressSummary(progress.levels);
+  const books = compactBooks;
+  const nceLevels = getProgressLevelsByCurriculumId("nce-1997");
+  const completedNceLevels = nceLevels.filter(
+    (level) => progress.levels[level.id]?.completed
+  ).length;
   const recommendedLevel = getRecommendedEligibleLevel(
-    getAllLevels(),
+    nceLevels,
     progress.levels,
     profile
   );
@@ -52,7 +55,7 @@ export default function HomePage() {
     ? books.findIndex((book) => book.id === recommendedLevel.bookId)
     : -1;
   const recommendedLevelIndex = recommendedLevel
-    ? getLevelsByBookId(recommendedLevel.bookId).findIndex(
+    ? getProgressLevelsByBookId(recommendedLevel.bookId).findIndex(
         (level) => level.id === recommendedLevel.id
       )
     : -1;
@@ -60,7 +63,7 @@ export default function HomePage() {
   useEffect(() => {
     let current = true;
     setReviewMetadataStatus("loading");
-    loadReviewMetadataIndex(curriculumContentVersion).then((metadata) => {
+    loadReviewMetadataIndex(GAME_CONTENT_VERSION).then((metadata) => {
       if (!current) return;
       setReviewMetadata(metadata);
       setReviewMetadataStatus(metadata ? "ready" : "error");
@@ -92,6 +95,24 @@ export default function HomePage() {
           </p>
         </header>
 
+        <Link
+          href="/assessment"
+          className="focus-ring block rounded-xl border-2 border-ink bg-sun p-5 text-ink shadow-crisp"
+        >
+          <strong className="block text-xl sm:text-2xl">
+            {profile.preferences.uiLanguage === "zh-CN"
+              ? "3–5 分钟测词汇量"
+              : "3–5 minute vocabulary estimate"}
+          </strong>
+          <span className="mt-2 block text-sm font-bold text-ink/65">
+            {profile.preferences.uiLanguage === "zh-CN"
+              ? "不超过 40 题，全程离线。"
+              : "Up to 40 questions, fully offline."}
+          </span>
+        </Link>
+
+        <CourseCatalog />
+
         <section className="overflow-hidden rounded-lg border-2 border-ink bg-ink text-white shadow-crisp">
           <div className="p-5 sm:p-6">
             <p className="text-xs font-black uppercase tracking-[0.14em] text-sun">
@@ -108,8 +129,7 @@ export default function HomePage() {
                   <p className="mt-2 text-sm font-bold text-white/70">
                     {t("home.todayLevel", {
                       book: recommendedBookIndex + 1,
-                      level: recommendedLevelIndex + 1,
-                      lesson: recommendedLevel.lessonAnchor ?? "—"
+                      level: recommendedLevelIndex + 1
                     })}
                   </p>
                 ) : (
@@ -119,7 +139,7 @@ export default function HomePage() {
                 )}
               </div>
               <span className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm font-black text-sun">
-                {progressSummary.completedLevels}/{progressSummary.totalLevels}
+                {completedNceLevels}/{nceLevels.length}
               </span>
             </div>
             <Link
@@ -197,11 +217,7 @@ export default function HomePage() {
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {books.map((book, bookIndex) => {
-              const bookProgress = getBookProgress(
-                book.id,
-                progress.levels,
-                progress.words
-              );
+              const bookProgress = getCompactBookProgress(book.id, progress);
               return (
                 <Link
                   key={book.id}
@@ -228,7 +244,7 @@ export default function HomePage() {
                     </span>
                   </span>
                   <span className="text-xs font-black text-ink/60">
-                    {bookProgress.completedLevels}/50
+                    {bookProgress.completedLevels}/{bookProgress.totalLevels}
                   </span>
                 </Link>
               );

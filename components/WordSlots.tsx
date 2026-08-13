@@ -151,10 +151,21 @@ export function WordSlots({
             {activeWord.source ? (
               <p className="mt-1 text-[11px] font-bold opacity-70">
                 {safeText(
-                  t("game.source", {
-                    book: activeWord.source.book,
-                    lesson: activeWord.source.lesson
-                  })
+                  activeWord.source.type !== "ielts" &&
+                    activeWord.source.type !== "kaoyan"
+                    ? t("game.source", {
+                        book: activeWord.source.book,
+                        lesson: activeWord.source.lesson
+                      })
+                    : activeWord.source.type === "ielts"
+                      ? t("game.sourceIelts", {
+                          list: activeWord.source.listId,
+                          rank: activeWord.source.rank
+                        })
+                      : t("game.sourceKaoyan", {
+                          list: activeWord.source.listId,
+                          rank: activeWord.source.rank
+                        })
                 )}
               </p>
             ) : null}

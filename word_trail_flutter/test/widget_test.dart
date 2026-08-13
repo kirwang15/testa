@@ -6,6 +6,7 @@ import 'package:word_trail_app/main.dart';
 import 'package:word_trail_app/models/assessment.dart';
 import 'package:word_trail_app/models/player_state.dart';
 import 'package:word_trail_app/screens/assessment_result_screen.dart';
+import 'package:word_trail_app/screens/assessment_screen.dart';
 import 'package:word_trail_app/screens/game_screen.dart';
 import 'package:word_trail_app/screens/map_screen.dart';
 
@@ -304,7 +305,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('invalid result exposes no estimate or numeric poster', (
+  testWidgets('assessment uses lowercase words and green/red answer feedback', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -315,25 +316,76 @@ void main() {
       ageBand: AgeBand.allAges,
       uiLanguage: UiLanguage.chinese,
     );
+    await tester.runAsync(
+      () => controller.startAssessment(AssessmentAnchor.unrestricted),
+    );
     configurePhone(tester);
+    final firstWord = controller.currentAssessmentQuestion!.item.spelling;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: AssessmentResultScreen(
-          controller: controller,
-          result: assessmentResult(reliability: AssessmentReliability.invalid),
-        ),
-      ),
+      MaterialApp(home: AssessmentScreen(controller: controller)),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(firstWord, firstWord.toLowerCase());
+    expect(find.text(firstWord), findsOneWidget);
 
-    expect(find.text('本次结果还不够稳定'), findsOneWidget);
-    expect(find.textContaining('7,200'), findsNothing);
-    expect(find.text('保存结果海报'), findsNothing);
-    expect(
-      find.byKey(const ValueKey('assessment-result-poster')),
-      findsNothing,
+    await tester.tap(find.text('认识'));
+    await tester.pump();
+    expect(find.text('回答正确'), findsOneWidget);
+    final correctPanel = tester.widget<Container>(
+      find
+          .ancestor(of: find.text('回答正确'), matching: find.byType(Container))
+          .first,
     );
+    expect(
+      (correctPanel.decoration! as BoxDecoration).color,
+      const Color(0xFF176B45),
+    );
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
+
+    await tester.tap(find.text('不确定'));
+    await tester.pump();
+    expect(find.textContaining('回答错误'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'invalid result still exposes a clear estimate range but no poster',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final controller = widgetController();
+      await initializeController(tester, controller);
+      controller.createProfile(
+        nickname: 'Tester',
+        ageBand: AgeBand.allAges,
+        uiLanguage: UiLanguage.chinese,
+      );
+      configurePhone(tester);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AssessmentResultScreen(
+            controller: controller,
+            result: assessmentResult(
+              reliability: AssessmentReliability.invalid,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('本次结果还不够稳定'), findsOneWidget);
+      expect(find.textContaining('6,100–8,400'), findsOneWidget);
+      expect(find.textContaining('7,200'), findsOneWidget);
+      expect(find.text('保存结果海报'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('assessment-result-poster')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

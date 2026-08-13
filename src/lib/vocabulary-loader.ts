@@ -20,6 +20,7 @@ import type {
   BookProgress,
   Level,
   LevelProgress,
+  NceVocabularySource,
   UnitProgress,
   VocabularyBook,
   VocabularyColorTheme,
@@ -53,6 +54,12 @@ const EXPECTED_CURRICULUM_BOOK_IDS = [
 ] as const;
 const GENERIC_EXAMPLE_PATTERN =
   /after this lesson|own sentence|practice word|example sentence/i;
+
+function isNceVocabularySource(
+  source: VocabularyWord["source"]
+): source is NceVocabularySource {
+  return Boolean(source && "book" in source && "lesson" in source);
+}
 
 export type VocabularyValidationIssue = {
   type:
@@ -154,7 +161,7 @@ function normalizeWordEntry(
     };
   }
 
-  const source = word.source;
+  const source = isNceVocabularySource(word.source) ? word.source : undefined;
   const sourceBaseIsValid = Boolean(
     source &&
       [1, 2, 3, 4].includes(source.book) &&

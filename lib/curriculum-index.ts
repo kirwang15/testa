@@ -1,9 +1,15 @@
 import generatedIndex from "../src/content/vocabulary/generated/curriculum-index.json";
+import {
+  getContentRatingForLevelId,
+  getProgressLevelById
+} from "./curriculum-progress-index";
 import type {
   BookProgress,
   CurriculumBookIndex,
+  CurriculumCourseIndex,
   CurriculumIndex,
   CurriculumLevelIndex,
+  CurriculumTrackIndex,
   CurriculumUnitIndex,
   GameProgress,
   LevelProgress,
@@ -14,10 +20,52 @@ import type {
 const index = generatedIndex as CurriculumIndex;
 const books = index.books as CurriculumBookIndex[];
 const units = index.units as CurriculumUnitIndex[];
-const levels = index.levels as CurriculumLevelIndex[];
+function hydrateLevel(level: CurriculumLevelIndex): CurriculumLevelIndex {
+  const compact = getProgressLevelById(level.id);
+  const nce = /^nce-1997-b([1-4])-level-(\d{3})$/.exec(level.id);
+  if (nce) {
+    const book = Number(nce[1]);
+    const levelNumber = Number(nce[2]);
+    const unit = Math.floor((((levelNumber - 1) % 50)) / 10) + 1;
+    return {
+      ...level,
+      bookId: `nce-1997-b${book}`,
+      unitId: `nce-1997-b${book}-u${unit}`,
+      curriculumId: "nce-1997",
+      trackId: `nce-1997-b${book}`,
+      levelNumber,
+      difficulty: ((levelNumber - 1) % 50) < 10 ? "easy" : "medium",
+      wordCount: compact?.wordCount ?? 0,
+      rating: getContentRatingForLevelId(level.id),
+      releaseStatus: "automated-beta"
+    };
+  }
+  const course = /^(ielts-nawl-v1|kaoyan-core-v1)-level-(\d{3})$/.exec(level.id);
+  if (!course) return level;
+  const stage = Math.ceil(Number(course[2]) / 50);
+  const levelNumber = Number(course[2]);
+  return {
+    ...level,
+    bookId: `${course[1]}-s${stage}`,
+    unitId: `${course[1]}-s${stage}`,
+    curriculumId: course[1],
+    trackId: `${course[1]}-s${stage}`,
+    levelNumber,
+    difficulty: levelNumber <= 100 ? "easy" : "medium",
+    wordCount: compact?.wordCount ?? 3,
+    rating: getContentRatingForLevelId(level.id),
+    releaseStatus: "automated-beta"
+  };
+}
+
+const levels = (index.levels as CurriculumLevelIndex[]).map(hydrateLevel);
+const curricula = (index.curricula ?? []) as CurriculumCourseIndex[];
+const tracks = (index.tracks ?? []) as CurriculumTrackIndex[];
 const booksById = new Map(books.map((book) => [book.id, book]));
 const unitsById = new Map(units.map((unit) => [unit.id, unit]));
 const levelsById = new Map(levels.map((level) => [level.id, level]));
+const curriculaById = new Map(curricula.map((course) => [course.id, course]));
+const tracksById = new Map(tracks.map((track) => [track.id, track]));
 
 export type ProgressSummary = {
   totalLevels: number;
@@ -43,6 +91,30 @@ export function getAllUnits() {
 
 export function getAllLevels() {
   return levels;
+}
+
+export function getAllCurricula() {
+  return curricula;
+}
+
+export function getCurriculumById(curriculumId: string) {
+  return curriculaById.get(curriculumId);
+}
+
+export function getTracksByCurriculumId(curriculumId: string) {
+  return tracks.filter((track) => track.curriculumId === curriculumId);
+}
+
+export function getTrackById(trackId: string) {
+  return tracksById.get(trackId);
+}
+
+export function getLevelsByCurriculumId(curriculumId: string) {
+  return levels.filter((level) => level.curriculumId === curriculumId);
+}
+
+export function getLevelsByTrackId(trackId: string) {
+  return levels.filter((level) => level.trackId === trackId);
 }
 
 export function getAllLevelIds() {
@@ -162,14 +234,23 @@ export function getBookStatus(
 export function getProgressSummary(
   progressByLevelId: Record<string, LevelProgress>
 ): ProgressSummary {
-  const completedLevels = levels.filter(
+  return getProgressSummaryForLevels(levels, progressByLevelId);
+}
+
+export function getProgressSummaryForLevels(
+  selectedLevels: readonly CurriculumLevelIndex[],
+  progressByLevelId: Record<string, LevelProgress>
+): ProgressSummary {
+  const completedLevels = selectedLevels.filter(
     (level) => progressByLevelId[level.id]?.completed
   ).length;
   return {
-    totalLevels: levels.length,
+    totalLevels: selectedLevels.length,
     completedLevels,
     completionRate:
-      levels.length === 0 ? 0 : Math.round((completedLevels / levels.length) * 100)
+      selectedLevels.length === 0
+        ? 0
+        : Math.round((completedLevels / selectedLevels.length) * 100)
   };
 }
 

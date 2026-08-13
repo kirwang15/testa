@@ -1,15 +1,15 @@
 import {
-  getAllLevelIds,
-  getFirstLevel,
-  getLevelById,
-  getRecommendedLevel
-} from "./curriculum-index";
+  getFirstProgressLevel,
+  getProgressLevelById as getIndexedProgressLevelById,
+  getProgressLevelIds,
+  getRecommendedProgressLevel
+} from "./curriculum-progress-index";
 import {
   getRuntimeLevelById,
   getRuntimeVocabularyWordContentVersion,
   getRuntimeVocabularyWordById,
   registerRuntimeLevel
-} from "./content-runtime";
+} from "./runtime-registry";
 import {
   applyHint as applyEngineHint,
   applyWordSubmission as applyEngineWordSubmission,
@@ -256,7 +256,7 @@ function canonicalizePersistedLevelId(levelId: string) {
 function getProgressLevelById(levelId: string) {
   const canonicalLevelId = canonicalizePersistedLevelId(levelId);
   const known =
-    getRuntimeLevelById(canonicalLevelId) ?? getLevelById(canonicalLevelId);
+    getRuntimeLevelById(canonicalLevelId) ?? getIndexedProgressLevelById(canonicalLevelId);
   if (known) return known;
 
   const legacy = /^legacy:(nce-[1-4])-(u\d+)-level-\d+$/.exec(canonicalLevelId);
@@ -371,7 +371,8 @@ function getCurrentLocation(levelId: string | undefined) {
 }
 
 function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
-  const recommendedLevel = getRecommendedLevel(progress.levels) ?? getFirstLevel();
+  const recommendedLevel =
+    getRecommendedProgressLevel(progress.levels) ?? getFirstProgressLevel();
   const currentLevel = progress.currentLevelId
     ? getProgressLevelById(progress.currentLevelId)
     : undefined;
@@ -386,7 +387,7 @@ function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
   return {
     ...progress,
     coins: normalizeCoins(progress.coins),
-    unlockedLevelIds: getAllLevelIds(),
+    unlockedLevelIds: getProgressLevelIds(),
     currentLevelId: currentLevel?.id ?? location.currentLevelId,
     currentUnitId: currentLevel?.unitId ?? location.currentUnitId,
     currentBookId: currentLevel?.bookId ?? location.currentBookId,
@@ -395,11 +396,11 @@ function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
 }
 
 export function createInitialGameProgress(): GameProgress {
-  const firstLevel = getFirstLevel();
+  const firstLevel = getFirstProgressLevel();
 
   return {
     coins: STARTING_COINS,
-    unlockedLevelIds: getAllLevelIds(),
+    unlockedLevelIds: getProgressLevelIds(),
     currentBookId: firstLevel?.bookId,
     currentUnitId: firstLevel?.unitId,
     currentLevelId: firstLevel?.id,

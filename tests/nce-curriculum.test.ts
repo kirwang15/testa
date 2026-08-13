@@ -164,7 +164,7 @@ describe("New Concept English 1997 curriculum", () => {
     assert.equal(contentManifest.levelCount, 200);
     assert.equal(
       contentManifest.generatorVersion,
-      `crossword-content-v1.1-sense-aligned+${EDITORIAL_OVERRIDE_VERSION}+runtime-content-v2-content-addressed`
+      `crossword-content-v1.1-sense-aligned+${EDITORIAL_OVERRIDE_VERSION}+runtime-content-v3-multi-curriculum`
     );
     assert.equal(contentManifest.clueGenerator?.runtime, "ollama");
     assert.equal(contentManifest.clueGenerator?.model, "gemma4:e4b");
@@ -615,7 +615,11 @@ describe("New Concept English 1997 curriculum", () => {
     assert.equal(getWordById("nce-1997-b4-confine")?.partOfSpeech, "verb");
     assert.match(getWordById("nce-1997-b4-riot")?.englishMeaning ?? "", /display of colours/i);
     assert.equal(
-      curriculumIndex.levels.every((level) => level.releaseStatus === "automated-beta"),
+      curriculumIndex.levels.every(
+        (level) =>
+          (level as { releaseStatus?: string }).releaseStatus === undefined ||
+          (level as { releaseStatus?: string }).releaseStatus === "automated-beta"
+      ),
       true
     );
     assert.equal(

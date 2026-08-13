@@ -9,6 +9,34 @@ describe("phase one support routes", () => {
     assert.equal(existsSync(resolve("app/settings/page.tsx")), true);
   });
 
+  test("exposes all three courses and the offline assessment journey on Web", () => {
+    const home = readFileSync("app/page.tsx", "utf8");
+    const catalog = readFileSync("components/CourseCatalog.tsx", "utf8");
+    const assessment = readFileSync("lib/web-assessment.ts", "utf8");
+    const assessmentStorage = readFileSync("lib/web-assessment-storage.ts", "utf8");
+    for (const route of [
+      "assessment",
+      "assessment/test",
+      "assessment/result",
+      "courses/[curriculumId]"
+    ]) {
+      assert.equal(existsSync(resolve(`app/${route}/page.tsx`)), true, route);
+    }
+    assert.match(home, /href="\/assessment"/);
+    assert.match(home, /CourseCatalog/);
+    assert.match(catalog, /ielts-nawl-v1/);
+    assert.match(catalog, /kaoyan-core-v1/);
+    assert.match(assessment, /bank-v1\.json/);
+    assert.match(assessmentStorage, /word-trail-web-assessment-v1/);
+    const assessmentScreen = readFileSync("components/WebAssessmentTest.tsx", "utf8");
+    const assessmentResult = readFileSync("components/WebAssessmentResult.tsx", "utf8");
+    assert.match(assessmentScreen, /toLocaleLowerCase/);
+    assert.match(assessmentScreen, /t\("correct"\)/);
+    assert.match(assessmentScreen, /bg-emerald-600/);
+    assert.match(assessmentScreen, /bg-red-600/);
+    assert.match(assessmentResult, /t\("rangeHeadline"/);
+  });
+
   test("provides the complete friend-demo navigation journey", () => {
     for (const route of ["onboarding", "map", "parent"]) {
       assert.equal(existsSync(resolve(`app/${route}/page.tsx`)), true, route);
@@ -30,7 +58,7 @@ describe("phase one support routes", () => {
     assert.doesNotMatch(home, /LevelCard|UnitCard|getUnitsByBookId/);
     assert.match(home, /getDueReviewSnapshot/);
     assert.match(home, /loadReviewMetadataIndex/);
-    assert.match(home, /getAllBooks/);
+    assert.match(home, /curriculum-progress-index/);
     assert.match(map, /curriculum-index/);
     assert.doesNotMatch(map, /content-runtime|vocabulary-loader|targetWords|\.word\b/);
     assert.doesNotMatch(
@@ -194,7 +222,7 @@ describe("phase one support routes", () => {
     const wordSlots = readFileSync("components/WordSlots.tsx", "utf8");
     const meaningToggle = readFileSync("components/WordMeaningToggle.tsx", "utf8");
 
-    assert.match(homePage, /curriculum-index/);
+    assert.match(homePage, /curriculum-progress-index/);
     assert.doesNotMatch(homePage, /getWordById|vocabulary-loader|\.displayText/);
     assert.match(wordSlots, /sanitizeLevelPresentationText/);
     assert.match(wordSlots, /safeText\(cluePresentation\.text\)/);

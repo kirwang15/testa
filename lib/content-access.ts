@@ -30,7 +30,10 @@ type EligibleProgressStatus = "completed" | "recommended" | "available";
 
 export function getContentBookNumber(contentId: string) {
   const match = /^(?:nce-1997-b|(?:legacy:)?nce-)([1-4])(?:-|$)/.exec(contentId);
-  return match ? (Number(match[1]) as 1 | 2 | 3 | 4) : undefined;
+  if (match) return Number(match[1]) as 1 | 2 | 3 | 4;
+  return /^(?:ielts-nawl-v1|kaoyan-core-v1)(?:-|$)/.test(contentId)
+    ? 1
+    : undefined;
 }
 
 export function getMaximumBookForAge(ageBand: AgeBand) {

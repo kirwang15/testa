@@ -28,7 +28,8 @@ import {
 import { getHintAction } from "@/lib/hint-stage";
 import {
   getAllLevels,
-  getLevelById
+  getLevelById,
+  getLevelsByCurriculumId
 } from "@/lib/curriculum-index";
 import {
   getDifficultyTranslationKey,
@@ -287,13 +288,16 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   const mountedRef = useRef(true);
   const currentLevelIdRef = useRef(`${activeProfileId}:${level.id}`);
   const actionSessionRef = useRef<ProfileActionContext | null>(null);
+  const courseLevels = level.curriculumId
+    ? getLevelsByCurriculumId(level.curriculumId)
+    : getAllLevels();
   const isJumpAheadLevel = isLevelAheadOfEligibleRecommendation(
-    getAllLevels(),
+    courseLevels,
     level.id,
     allLevelProgress,
     activeProfile
   );
-  const nextLevel = getNextEligibleLevel(getAllLevels(), level.id, activeProfile);
+  const nextLevel = getNextEligibleLevel(courseLevels, level.id, activeProfile);
   const activeClue = resolveActiveClue(level, progress, selectedWordId);
   const effectiveDraft = reconcileCrosswordDraft(
     level,

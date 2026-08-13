@@ -18,7 +18,7 @@ describe("answer-free review metadata", () => {
   test("publishes one collision-free current entry for every runtime word", () => {
     assert.equal(validateReviewMetadataIndex(generated), true);
     assert.equal(generated.contentVersion, curriculumContentVersion);
-    assert.equal(Object.keys(generated.entries).length, 899);
+    assert.equal(Object.keys(generated.entries).length, 2099);
     const serialized = JSON.stringify(generated);
     assert.doesNotMatch(serialized, /legacy:nce-|nce-1997-b/);
     assert.deepEqual(resolveReviewWordMetadata("legacy:nce-1-u1-cat", generated), {

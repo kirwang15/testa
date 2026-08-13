@@ -25,6 +25,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   bool _locked = false;
   bool _submitting = false;
   bool _showCarefulWarning = false;
+  _AnswerFeedback? _feedback;
 
   AppStrings get _t => AppStrings(widget.controller.activeProfile!.uiLanguage);
 
@@ -56,9 +57,36 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
 
   Future<void> _submit(AssessmentAnswer answer) async {
     if (_locked || _submitting) return;
-    _submitting = true;
+    final question = widget.controller.currentAssessmentQuestion;
+    if (question == null) return;
     _responseClock.stop();
     _slowTimer?.cancel();
+    if (!answer.skipped) {
+      final correct = question.type == AssessmentQuestionType.yesNo
+          ? answer.recognized ==
+                (question.item.kind == AssessmentItemKind.realWord)
+          : answer.selectedOptionIndex == question.item.correctOptionIndex;
+      final correctAnswer = question.type == AssessmentQuestionType.yesNo
+          ? _t(
+              question.item.kind == AssessmentItemKind.realWord
+                  ? 'assessment.yes'
+                  : 'assessment.no',
+            )
+          : question.item.options[question.item.correctOptionIndex];
+      setState(() {
+        _submitting = true;
+        _feedback = _AnswerFeedback(
+          correct: correct,
+          recognized: answer.recognized,
+          selectedOptionIndex: answer.selectedOptionIndex,
+          correctAnswer: correctAnswer,
+        );
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 850));
+      if (!mounted) return;
+    } else {
+      _submitting = true;
+    }
     final step = widget.controller.submitAssessmentAnswer(answer);
     if (step.showCarefulAnswerWarning) {
       setState(() {
@@ -89,6 +117,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
     if (mounted) {
       setState(() {
         _submitting = false;
+        _feedback = null;
         _beginQuestionClock();
       });
     }
@@ -97,6 +126,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
   int get _elapsedMs => _responseClock.elapsedMilliseconds;
 
   Future<void> _askToPause() async {
+    if (_submitting) return;
     final shouldLeave = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -199,7 +229,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                   Semantics(
                     header: true,
                     child: Text(
-                      question.item.spelling.toUpperCase(),
+                      question.item.spelling.toLowerCase(),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontSize: 38,
@@ -212,6 +242,36 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
               ),
             ),
             const SizedBox(height: 18),
+            if (_feedback != null) ...[
+              Semantics(
+                liveRegion: true,
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _feedback!.correct
+                        ? const Color(0xFF176B45)
+                        : const Color(0xFF9B2C2C),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _feedback!.correct
+                          ? const Color(0xFF82D7A8)
+                          : const Color(0xFFFFA4A4),
+                      width: 2,
+                    ),
+                  ),
+                  child: Text(
+                    _feedback!.correct
+                        ? _t('assessment.correct')
+                        : _t('assessment.wrong', {
+                            'answer': _feedback!.correctAnswer,
+                          }),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (_showCarefulWarning)
               Semantics(
                 liveRegion: true,
@@ -234,7 +294,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _locked || _submitting
+                      onPressed: _locked
                           ? null
                           : () => _submit(
                               AssessmentAnswer.yesNo(
@@ -242,13 +302,14 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                                 responseTimeMs: _elapsedMs,
                               ),
                             ),
+                      style: _yesNoStyle(question: question, recognized: false),
                       child: Text(_t('assessment.no')),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton(
-                      onPressed: _locked || _submitting
+                      onPressed: _locked
                           ? null
                           : () => _submit(
                               AssessmentAnswer.yesNo(
@@ -256,6 +317,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                                 responseTimeMs: _elapsedMs,
                               ),
                             ),
+                      style: _yesNoStyle(question: question, recognized: true),
                       child: Text(_t('assessment.yes')),
                     ),
                   ),
@@ -268,7 +330,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                 index++
               ) ...[
                 OutlinedButton(
-                  onPressed: _locked || _submitting
+                  onPressed: _locked
                       ? null
                       : () => _submit(
                           AssessmentAnswer.multipleChoice(
@@ -276,6 +338,7 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
                             responseTimeMs: _elapsedMs,
                           ),
                         ),
+                  style: _choiceStyle(question: question, index: index),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(question.item.options[index]),
@@ -315,4 +378,63 @@ class _AssessmentScreenState extends State<AssessmentScreen> {
       ),
     );
   }
+
+  ButtonStyle? _yesNoStyle({
+    required AssessmentQuestion question,
+    required bool recognized,
+  }) {
+    final feedback = _feedback;
+    if (feedback == null) return null;
+    final correct =
+        recognized == (question.item.kind == AssessmentItemKind.realWord);
+    final selected = feedback.recognized == recognized;
+    if (!correct && !selected) {
+      return OutlinedButton.styleFrom(
+        foregroundColor: const Color(0x73FFE7B0),
+        side: const BorderSide(color: Color(0x44FFE7B0)),
+      );
+    }
+    final color = correct ? const Color(0xFF1D8A57) : const Color(0xFFC43D3D);
+    return OutlinedButton.styleFrom(
+      backgroundColor: color,
+      foregroundColor: Colors.white,
+      side: BorderSide(color: color, width: 3),
+    );
+  }
+
+  ButtonStyle? _choiceStyle({
+    required AssessmentQuestion question,
+    required int index,
+  }) {
+    final feedback = _feedback;
+    if (feedback == null) return null;
+    final correct = index == question.item.correctOptionIndex;
+    final selected = feedback.selectedOptionIndex == index;
+    if (!correct && !selected) {
+      return OutlinedButton.styleFrom(
+        foregroundColor: const Color(0x73FFE7B0),
+        side: const BorderSide(color: Color(0x44FFE7B0)),
+      );
+    }
+    final color = correct ? const Color(0xFF1D8A57) : const Color(0xFFC43D3D);
+    return OutlinedButton.styleFrom(
+      backgroundColor: color,
+      foregroundColor: Colors.white,
+      side: BorderSide(color: color, width: 3),
+    );
+  }
+}
+
+class _AnswerFeedback {
+  const _AnswerFeedback({
+    required this.correct,
+    required this.recognized,
+    required this.selectedOptionIndex,
+    required this.correctAnswer,
+  });
+
+  final bool correct;
+  final bool? recognized;
+  final int? selectedOptionIndex;
+  final String correctAnswer;
 }

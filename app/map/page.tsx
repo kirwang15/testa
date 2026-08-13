@@ -147,10 +147,16 @@ export default function MapPage() {
               <div>
                 <p className="text-xs font-black uppercase text-coral">{selectedBook.level}</p>
                 <h2 className="mt-1 text-2xl font-black text-ink">
-                  {t("map.bookTitle", { book: selectedBookIndex + 1 })}
+                  {t("map.bookTitle", {
+                    book: selectedBookIndex + 1,
+                    total: selectedLevels.length
+                  })}
                 </h2>
                 <p className="mt-1 text-sm font-bold text-ink/60">
-                  {t("map.progress", { done: bookProgress?.completedLevels ?? 0 })}
+                  {t("map.progress", {
+                    done: bookProgress?.completedLevels ?? 0,
+                    total: selectedLevels.length
+                  })}
                 </p>
               </div>
               <Link
