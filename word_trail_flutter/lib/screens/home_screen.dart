@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import '../l10n/app_strings.dart';
 import '../models/course.dart';
+import '../models/assessment.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shell.dart';
+import 'assessment_intro_screen.dart';
 import 'game_screen.dart';
 import 'map_screen.dart';
 import 'parent_screen.dart';
@@ -72,6 +74,60 @@ class HomeScreen extends StatelessWidget {
           Text(
             t('home.subtitle'),
             style: const TextStyle(color: Color(0xCFFFE7B0), fontSize: 16),
+          ),
+          const SizedBox(height: 18),
+          TrailCard(
+            highlighted: true,
+            onTap: () =>
+                _push(context, AssessmentIntroScreen(controller: controller)),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: AppColors.wood,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.psychology_alt_rounded,
+                    color: AppColors.cream,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        controller.latestAssessmentResult != null &&
+                                controller
+                                        .latestAssessmentResult!
+                                        .reliability !=
+                                    AssessmentReliability.invalid
+                            ? t('assessment.homeAgain', {
+                                'estimate': _formatEstimate(
+                                  controller.latestAssessmentResult!.estimate,
+                                ),
+                              })
+                            : t('assessment.homeStart'),
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        t('assessment.homeStartDesc'),
+                        style: const TextStyle(
+                          color: Color(0xBFFFE7B0),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_rounded, color: AppColors.amber),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -291,6 +347,10 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+
+  static String _formatEstimate(int value) => value >= 1000
+      ? '${value ~/ 1000},${(value % 1000).toString().padLeft(3, '0')}'
+      : '$value';
 }
 
 class _CourseCard extends StatelessWidget {

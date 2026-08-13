@@ -9,10 +9,12 @@ import java.util.Locale
 class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
     private var textToSpeech: TextToSpeech? = null
     private var speechReady = false
+    private var posterChannel: PosterChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         textToSpeech = TextToSpeech(this, this)
+        posterChannel = PosterChannel(this).also { it.register(flutterEngine) }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "word_trail/speech")
             .setMethodCallHandler { call, result ->
                 if (call.method != "speak") {
@@ -41,7 +43,20 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
         if (speechReady) textToSpeech?.language = Locale.US
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        if (posterChannel?.onRequestPermissionsResult(requestCode, grantResults) == true) {
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onDestroy() {
+        posterChannel?.dispose()
+        posterChannel = null
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null

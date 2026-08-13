@@ -27,6 +27,10 @@ const ieltsDocument = require(resolve(
   process.env.IELTS_CONTENT_PATH ??
     resolve(ROOT, "src/content/vocabulary/generated/ielts-nawl-v1.json")
 ));
+const kaoyanDocument = require(resolve(
+  process.env.KAOYAN_CONTENT_PATH ??
+    resolve(ROOT, "src/content/vocabulary/generated/kaoyan-core-v1.json")
+));
 const ratingOverrides = require(resolve(
   ROOT,
   "src/content/vocabulary/content-ratings.json"
@@ -39,9 +43,17 @@ const FLUTTER_CONTENT_ROOT = resolve(
 const FLUTTER_LEVEL_ROOT = resolve(FLUTTER_CONTENT_ROOT, "levels");
 const PUBLIC_CONTENT_ROOT = resolve(ROOT, "public/content/runtime");
 const SCHEMA_VERSION = 1;
-const GENERATOR_VERSION = "mobile-curriculum-v1";
+const GENERATOR_VERSION = "mobile-curriculum-v2-kaoyan";
+// The first 600 shipped levels are compatibility content. Their layout identity
+// must not change merely because a new curriculum changes the catalog version.
+const LEGACY_LAYOUT_MANIFEST_VERSION = "word-trail-f198fcae2c0f1964";
+const LEGACY_600_SEMANTIC_SHA256 =
+  "30e6a44d56b4ac344c714184685b3ab15fccd1ac339ae9924ebc9c50db1f7ad9";
+const LEGACY_CATALOG_PROJECTION_SHA256 =
+  "fb021b28964fdcc955da94919e6078b652f7b5f8252551a20ddfb69057e0e4f4";
 const NCE_CURRICULUM_ID = "nce-1997";
 const IELTS_CURRICULUM_ID = "ielts-nawl-v1";
+const KAOYAN_CURRICULUM_ID = "kaoyan-core-v1";
 const PARENT_REVIEW_IDS = new Set(ratingOverrides["parent-review"]);
 const THIRTEEN_PLUS_IDS = new Set(ratingOverrides["13-plus"]);
 
@@ -55,6 +67,41 @@ function stableJson(value, pretty = false) {
 
 function writeJson(path, value, pretty = false) {
   writeFileSync(path, stableJson(value, pretty), "utf8");
+}
+
+function assertLegacyReleaseCompatibility(bundles, catalog) {
+  const legacyCurriculumIds = new Set([NCE_CURRICULUM_ID, IELTS_CURRICULUM_ID]);
+  const legacyBundles = bundles
+    .filter((bundle) => legacyCurriculumIds.has(bundle.level.curriculumId))
+    .sort((left, right) => left.level.id.localeCompare(right.level.id))
+    .map(({ contentVersion: _contentVersion, ...bundle }) => bundle);
+  if (legacyBundles.length !== 600) {
+    throw new Error(`Expected 600 legacy bundles, got ${legacyBundles.length}.`);
+  }
+  const semanticHash = sha256(JSON.stringify(legacyBundles));
+  if (semanticHash !== LEGACY_600_SEMANTIC_SHA256) {
+    throw new Error(
+      `Legacy 600-level semantic drift: expected ${LEGACY_600_SEMANTIC_SHA256}, got ${semanticHash}.`
+    );
+  }
+
+  const catalogProjection = {
+    curricula: catalog.curricula.filter((entry) =>
+      legacyCurriculumIds.has(entry.id)
+    ),
+    tracks: catalog.tracks.filter((entry) =>
+      legacyCurriculumIds.has(entry.curriculumId)
+    ),
+    levels: catalog.levels.filter((entry) =>
+      legacyCurriculumIds.has(entry.curriculumId)
+    )
+  };
+  const catalogHash = sha256(JSON.stringify(catalogProjection));
+  if (catalogHash !== LEGACY_CATALOG_PROJECTION_SHA256) {
+    throw new Error(
+      `Legacy catalog projection drift: expected ${LEGACY_CATALOG_PROJECTION_SHA256}, got ${catalogHash}.`
+    );
+  }
 }
 
 function ratingForWordId(wordId) {
@@ -401,7 +448,12 @@ function shuffle(values, seed) {
   return result;
 }
 
-function partitionIeltsWords(words, contentVersion) {
+function partitionThreeWordCourse(words, contentVersion, courseLabel) {
+  if (words.length % 3 !== 0) {
+    throw new Error(`${courseLabel} word count must be divisible by 3.`);
+  }
+  const expectedGroupCount = words.length / 3;
+  const probePrefix = courseLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const wordIndexById = new Map(words.map((word, index) => [word.id, index]));
   const sharedMatrix = words.map((left, leftIndex) =>
     words.map((right, rightIndex) =>
@@ -431,7 +483,7 @@ function partitionIeltsWords(words, contentVersion) {
       tripleValidity.set(
         key,
         Boolean(
-          tryGenerate(group, `ielts-global-probe-${key}`, { contentVersion })
+          tryGenerate(group, `${probePrefix}-probe-${key}`, { contentVersion })
         )
       );
     }
@@ -567,23 +619,23 @@ function partitionIeltsWords(words, contentVersion) {
     );
     if (zeroHyperedgeWords.length > 0) {
       throw new Error(
-        `IELTS zero-hyperedge words: ${zeroHyperedgeWords
+        `${courseLabel} zero-hyperedge words: ${zeroHyperedgeWords
           .map((word) => `${word.frequencyRank}:${word.word}`)
           .join(",")}`
       );
     }
     latestResult = solveExactCover(250_000);
     process.stdout.write(
-      `IELTS hypergraph degree>=${targetDegree}: ${edgeByKey.size} triples, ` +
-        `${latestResult.solution.length}/200 groups, ${600 - latestResult.solution.length * 3} words left, ` +
+      `${courseLabel} hypergraph degree>=${targetDegree}: ${edgeByKey.size} triples, ` +
+        `${latestResult.solution.length}/${expectedGroupCount} groups, ${words.length - latestResult.solution.length * 3} words left, ` +
         `${latestResult.visitedNodes} backtrack nodes, smallest remainder ${latestResult.smallestRemaining}.\n`
     );
-    if (latestResult.solved && latestResult.solution.length === 200) {
+    if (latestResult.solved && latestResult.solution.length === expectedGroupCount) {
       return latestResult.solution.map((edge) => edge.map((index) => words[index]));
     }
   }
   throw new Error(
-    `Unable to cover 600 IELTS words; zero-active words: ${latestResult?.zeroDegreeWords.join(",") || "none"}`
+    `Unable to cover ${words.length} ${courseLabel} words; zero-active words: ${latestResult?.zeroDegreeWords.join(",") || "none"}`
   );
 }
 
@@ -595,7 +647,11 @@ function createIeltsLevels(authoredWords, contentVersion) {
     throw new Error("IELTS authoring document must contain 600 unique spellings.");
   }
   const result = [];
-  const groups = partitionIeltsWords(authoredWords, contentVersion).sort(
+  const groups = partitionThreeWordCourse(
+    authoredWords,
+    contentVersion,
+    "IELTS"
+  ).sort(
     (left, right) =>
       left.reduce((sum, word) => sum + word.frequencyRank, 0) / left.length -
         right.reduce((sum, word) => sum + word.frequencyRank, 0) / right.length ||
@@ -659,10 +715,87 @@ function createIeltsLevels(authoredWords, contentVersion) {
   return result;
 }
 
+function createKaoyanLevels(authoredWords, contentVersion) {
+  if (
+    authoredWords.length !== 600 ||
+    new Set(authoredWords.map((word) => word.word.toLowerCase())).size !== 600
+  ) {
+    throw new Error("Kaoyan authoring document must contain 600 unique spellings.");
+  }
+  const result = [];
+  const stageStats = [];
+  for (let stage = 1; stage <= 4; stage += 1) {
+    const trackId = `${KAOYAN_CURRICULUM_ID}-s${stage}`;
+    const stageWords = authoredWords
+      .filter((word) => word.stage === stage)
+      .sort((left, right) => left.frequencyRank - right.frequencyRank);
+    if (stageWords.length !== 150) {
+      throw new Error(`Kaoyan stage ${stage} must contain exactly 150 words.`);
+    }
+    const stageGroups = partitionThreeWordCourse(
+      stageWords,
+      contentVersion,
+      `Kaoyan-s${stage}`
+    ).sort(
+      (left, right) =>
+        left.reduce((sum, word) => sum + word.frequencyRank, 0) / left.length -
+          right.reduce((sum, word) => sum + word.frequencyRank, 0) / right.length ||
+        Math.max(...left.map((word) => word.frequencyRank)) -
+          Math.max(...right.map((word) => word.frequencyRank))
+    );
+    const ranks = stageGroups.flatMap((group) =>
+      group.map((word) => word.frequencyRank)
+    );
+    stageStats.push({
+      stage,
+      mean: ranks.reduce((sum, rank) => sum + rank, 0) / ranks.length,
+      min: Math.min(...ranks),
+      max: Math.max(...ranks)
+    });
+    stageGroups.forEach((group, stageIndex) => {
+      const levelNumber = (stage - 1) * 50 + stageIndex + 1;
+      const id = `${KAOYAN_CURRICULUM_ID}-level-${String(levelNumber).padStart(3, "0")}`;
+      const words = group.map((word) => ({
+        ...word,
+        bookId: trackId,
+        unitId: trackId
+      }));
+      const level = tryGenerate(words, id, {
+        title: `Kaoyan Core · ${String(levelNumber).padStart(3, "0")}`,
+        bookId: trackId,
+        unitId: trackId,
+        contentVersion
+      });
+      if (!level) throw new Error(`Unable to generate ${id}`);
+      result.push({
+        ...level,
+        curriculumId: KAOYAN_CURRICULUM_ID,
+        trackId,
+        levelNumber,
+        rewardCoins: 20,
+        perfectBonusCoins: 5,
+        difficulty: stage <= 2 ? "easy" : "medium"
+      });
+    });
+  }
+  process.stdout.write(
+    `Kaoyan exact cover 200/200; course ranks ${stageStats
+      .map(
+        (entry) =>
+          `s${entry.stage}=mean${entry.mean.toFixed(1)}[${entry.min}-${entry.max}]`
+      )
+      .join(" ")}.\n`
+  );
+  return result;
+}
+
 function createCatalog(levelBundles, contentVersion) {
   const nceTrackIds = [1, 2, 3, 4].map((book) => `nce-1997-b${book}`);
   const ieltsTrackIds = [1, 2, 3, 4].map(
     (stage) => `${IELTS_CURRICULUM_ID}-s${stage}`
+  );
+  const kaoyanTrackIds = [1, 2, 3, 4].map(
+    (stage) => `${KAOYAN_CURRICULUM_ID}-s${stage}`
   );
   const tracks = [
     ...nceTrackIds.map((id, index) => ({
@@ -686,6 +819,22 @@ function createCatalog(levelBundles, contentVersion) {
         .filter((bundle) => bundle.level.trackId === id)
         .sort((left, right) => left.level.levelNumber - right.level.levelNumber)
         .map((bundle) => bundle.level.id)
+    })),
+    ...kaoyanTrackIds.map((id, index) => ({
+      id,
+      curriculumId: KAOYAN_CURRICULUM_ID,
+      titleEn: [
+        "General Core",
+        "Advanced Bridge",
+        "Academic Core",
+        "Advanced Reading"
+      ][index],
+      titleZh: ["通用核心", "进阶衔接", "学术核心", "高阶阅读"][index],
+      order: index + 1,
+      levelIds: levelBundles
+        .filter((bundle) => bundle.level.trackId === id)
+        .sort((left, right) => left.level.levelNumber - right.level.levelNumber)
+        .map((bundle) => bundle.level.id)
     }))
   ];
   return {
@@ -703,6 +852,12 @@ function createCatalog(levelBundles, contentVersion) {
         titleEn: "IELTS Preparation Vocabulary",
         titleZh: "IELTS 备考词汇",
         trackIds: ieltsTrackIds
+      },
+      {
+        id: KAOYAN_CURRICULUM_ID,
+        titleEn: "Kaoyan Core Vocabulary · Starter",
+        titleZh: "考研核心词汇 · 起步篇",
+        trackIds: kaoyanTrackIds
       }
     ],
     tracks,
@@ -711,7 +866,7 @@ function createCatalog(levelBundles, contentVersion) {
       curriculumId: bundle.level.curriculumId,
       trackId: bundle.level.trackId,
       order:
-        bundle.level.curriculumId === IELTS_CURRICULUM_ID
+        bundle.level.curriculumId !== NCE_CURRICULUM_ID
           ? ((bundle.level.levelNumber - 1) % 50) + 1
           : bundle.level.levelNumber,
       levelNumber: bundle.level.levelNumber,
@@ -735,6 +890,8 @@ function main() {
     contentRatings: ratingOverrides,
     ieltsManifest: ieltsDocument.manifest,
     ieltsWords: ieltsDocument.words,
+    kaoyanManifest: kaoyanDocument.manifest,
+    kaoyanWords: kaoyanDocument.words,
     generatorVersion: GENERATOR_VERSION,
     generatorSha256: sha256(readFileSync(__filename))
   });
@@ -751,10 +908,19 @@ function main() {
   const reinforcementLevels = createNceReinforcementLevels(
     coreLevels,
     nceWords,
-    contentVersion
+    LEGACY_LAYOUT_MANIFEST_VERSION
   );
-  const ieltsLevels = createIeltsLevels(ieltsDocument.words, contentVersion);
-  const allLevels = [...coreLevels, ...reinforcementLevels, ...ieltsLevels];
+  const ieltsLevels = createIeltsLevels(
+    ieltsDocument.words,
+    LEGACY_LAYOUT_MANIFEST_VERSION
+  );
+  const kaoyanLevels = createKaoyanLevels(kaoyanDocument.words, contentVersion);
+  const allLevels = [
+    ...coreLevels,
+    ...reinforcementLevels,
+    ...ieltsLevels,
+    ...kaoyanLevels
+  ];
   const ieltsTrackByWordId = new Map(
     ieltsLevels.flatMap((level) =>
       level.targetWords.map((word) => [
@@ -781,11 +947,40 @@ function main() {
       ];
     })
   );
+  const kaoyanTrackByWordId = new Map(
+    kaoyanLevels.flatMap((level) =>
+      level.targetWords.map((word) => [
+        word.vocabularyWordId ?? word.id,
+        level.trackId
+      ])
+    )
+  );
+  if (kaoyanTrackByWordId.size !== 600) {
+    throw new Error("Every Kaoyan word must map to exactly one generated stage.");
+  }
+  const kaoyanWordById = new Map(
+    kaoyanDocument.words.map((word) => {
+      const trackId = kaoyanTrackByWordId.get(word.id);
+      if (!trackId) throw new Error(`Missing Kaoyan stage for ${word.id}`);
+      return [
+        word.id,
+        {
+          ...word,
+          bookId: trackId,
+          unitId: trackId,
+          rating: "all-ages"
+        }
+      ];
+    })
+  );
 
   const bundles = allLevels.map((level) => {
     const vocabulary = level.targetWords.map((target) => {
       const wordId = target.vocabularyWordId ?? target.id;
-      const word = nceWordById.get(wordId) ?? ieltsWordById.get(wordId);
+      const word =
+        nceWordById.get(wordId) ??
+        ieltsWordById.get(wordId) ??
+        kaoyanWordById.get(wordId);
       if (!word) throw new Error(`Missing vocabulary for ${level.id}/${wordId}`);
       return word;
     });
@@ -803,11 +998,15 @@ function main() {
   const ieltsBundles = bundles.filter(
     (bundle) => bundle.level.curriculumId === IELTS_CURRICULUM_ID
   );
+  const kaoyanBundles = bundles.filter(
+    (bundle) => bundle.level.curriculumId === KAOYAN_CURRICULUM_ID
+  );
   if (
-    bundles.length !== 600 ||
+    bundles.length !== 800 ||
     nceBundles.length !== 400 ||
     ieltsBundles.length !== 200 ||
-    new Set(bundles.map((bundle) => bundle.level.id)).size !== 600 ||
+    kaoyanBundles.length !== 200 ||
+    new Set(bundles.map((bundle) => bundle.level.id)).size !== 800 ||
     [1, 2, 3, 4].some(
       (book) =>
         nceBundles.filter((bundle) => bundle.level.trackId === `nce-1997-b${book}`)
@@ -818,9 +1017,15 @@ function main() {
         ieltsBundles.filter(
           (bundle) => bundle.level.trackId === `${IELTS_CURRICULUM_ID}-s${stage}`
         ).length !== 50
+    ) ||
+    [1, 2, 3, 4].some(
+      (stage) =>
+        kaoyanBundles.filter(
+          (bundle) => bundle.level.trackId === `${KAOYAN_CURRICULUM_ID}-s${stage}`
+        ).length !== 50
     )
   ) {
-    throw new Error("Refusing to publish an incomplete 600-level mobile catalog.");
+    throw new Error("Refusing to publish an incomplete 800-level mobile catalog.");
   }
 
   rmSync(FLUTTER_LEVEL_ROOT, { recursive: true, force: true });
@@ -829,12 +1034,13 @@ function main() {
     writeJson(resolve(FLUTTER_LEVEL_ROOT, `${bundle.level.id}.json`), bundle);
   }
   const catalog = createCatalog(bundles, contentVersion);
+  assertLegacyReleaseCompatibility(bundles, catalog);
   writeJson(resolve(FLUTTER_CONTENT_ROOT, "catalog.json"), catalog, true);
   mkdirSync(PUBLIC_CONTENT_ROOT, { recursive: true });
   writeJson(resolve(PUBLIC_CONTENT_ROOT, "catalog.json"), catalog, true);
 
   process.stdout.write(
-    `Generated mobile catalog ${contentVersion}: 400 NCE + 200 IELTS = 600 level bundles.\n`
+    `Generated mobile catalog ${contentVersion}: 400 NCE + 200 IELTS + 200 Kaoyan = 800 level bundles.\n`
   );
 }
 

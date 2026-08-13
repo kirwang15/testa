@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:word_trail_app/app_controller.dart';
 import 'package:word_trail_app/main.dart';
+import 'package:word_trail_app/models/assessment.dart';
 import 'package:word_trail_app/models/player_state.dart';
+import 'package:word_trail_app/screens/assessment_result_screen.dart';
 import 'package:word_trail_app/screens/game_screen.dart';
 import 'package:word_trail_app/screens/map_screen.dart';
 
@@ -20,6 +22,32 @@ void configurePhone(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+AssessmentSession assessmentResult({
+  AssessmentReliability reliability = AssessmentReliability.good,
+}) => AssessmentSession(
+  selectedAnchor: AssessmentAnchor.ielts,
+  bankVersion: 'assessment-proxy-v1-widget-test',
+  phase: AssessmentPhase.complete,
+  responses: const <AssessmentResponse>[],
+  usedItemIds: const <String>{},
+  theta: 0,
+  standardError: 0.4,
+  estimate: 7200,
+  estimateLower: 6100,
+  estimateUpper: 8400,
+  reliability: reliability,
+  estimateHistory: const <int>[7200],
+  startedAt: DateTime(2026, 8, 12),
+  durationMs: 180000,
+);
+
+Future<void> initializeController(
+  WidgetTester tester,
+  AppController controller,
+) async {
+  await tester.runAsync(controller.initialize);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -28,7 +56,7 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final controller = widgetController();
-    await controller.initialize();
+    await initializeController(tester, controller);
     configurePhone(tester);
 
     await tester.pumpWidget(WordTrailApp(controller: controller));
@@ -44,7 +72,7 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final controller = widgetController();
-    await controller.initialize();
+    await initializeController(tester, controller);
     configurePhone(tester);
 
     await tester.pumpWidget(WordTrailApp(controller: controller));
@@ -77,7 +105,7 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final controller = widgetController();
-    await controller.initialize();
+    await initializeController(tester, controller);
     configurePhone(tester);
 
     await tester.pumpWidget(WordTrailApp(controller: controller));
@@ -102,6 +130,8 @@ void main() {
     expect(controller.needsGettingStarted, isFalse);
     expect(find.text('从这里开始'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('设置'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('新手指引'));
@@ -119,11 +149,14 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({});
     final controller = widgetController();
-    await controller.initialize();
+    await initializeController(tester, controller);
     controller.createProfile(
       nickname: 'Tester',
       ageBand: AgeBand.allAges,
       uiLanguage: UiLanguage.chinese,
+    );
+    await tester.runAsync(
+      () => controller.repository.loadLevel('nce-1997-b1-level-001'),
     );
     configurePhone(tester);
     final semantics = tester.ensureSemantics();
@@ -136,7 +169,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.text('1. 先阅读当前提示，再点击下方字母按钮。'), findsOneWidget);
       expect(find.bySemanticsLabel('填字棋盘'), findsOneWidget);
@@ -145,15 +179,15 @@ void main() {
       for (final letter in ['C', 'A', 'T']) {
         final button = find.bySemanticsLabel('字母按钮 $letter').first;
         await tester.ensureVisible(button);
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 250));
         await tester.tap(button);
         await tester.pump();
       }
       expect(find.text('3. 当前单词已经填满，现在点击“检查单词”。'), findsOneWidget);
       await tester.ensureVisible(find.text('检查单词'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
       await tester.tap(find.text('检查单词'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.text('全部单词都完成了，做得好！'), findsOneWidget);
       expect(find.textContaining('Beta'), findsNothing);
@@ -168,16 +202,16 @@ void main() {
   testWidgets('map exposes localized star semantics', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final controller = widgetController();
-    await controller.initialize();
+    await initializeController(tester, controller);
     controller.createProfile(
       nickname: 'Tester',
       ageBand: AgeBand.allAges,
       uiLanguage: UiLanguage.chinese,
     );
-    final bundle = await controller.repository.loadLevel(
-      'nce-1997-b1-level-001',
+    final bundle = await tester.runAsync(
+      () => controller.repository.loadLevel('nce-1997-b1-level-001'),
     );
-    controller.completeLevel(bundle.level);
+    controller.completeLevel(bundle!.level);
     configurePhone(tester);
     final semantics = tester.ensureSemantics();
     try {
@@ -190,7 +224,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.bySemanticsLabel('第 1 关，3 星'), findsOneWidget);
       expect(find.bySemanticsLabel(RegExp('stars')), findsNothing);
@@ -207,7 +241,7 @@ void main() {
     final controller = widgetController(
       ratings: const {'nce-1997-b1-level-001': '13-plus'},
     );
-    await controller.initialize();
+    await initializeController(tester, controller);
     controller.createProfile(
       nickname: 'Tester',
       ageBand: AgeBand.allAges,
@@ -225,7 +259,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.bySemanticsLabel('第 1 关，未开放'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline_rounded), findsOneWidget);
@@ -233,5 +267,73 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('result poster is 1080x1440-ready and excludes private fields', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = widgetController();
+    await initializeController(tester, controller);
+    controller.createProfile(
+      nickname: 'PRIVATE USER',
+      ageBand: AgeBand.allAges,
+      uiLanguage: UiLanguage.chinese,
+    );
+    configurePhone(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssessmentResultScreen(
+          controller: controller,
+          result: assessmentResult(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final poster = find.byKey(const ValueKey('assessment-result-poster'));
+    expect(poster, findsOneWidget);
+    expect(tester.getSize(poster), const Size(360, 480));
+    expect(find.textContaining('95% 估算区间：6,100–8,400'), findsWidgets);
+    expect(find.text('雅思'), findsOneWidget);
+    expect(find.text('基础高频词汇'), findsWidgets);
+    expect(find.text('进阶／学术词汇'), findsWidgets);
+    expect(find.text('目标阶段词汇'), findsWidgets);
+    expect(find.textContaining('PRIVATE USER'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid result exposes no estimate or numeric poster', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = widgetController();
+    await initializeController(tester, controller);
+    controller.createProfile(
+      nickname: 'Tester',
+      ageBand: AgeBand.allAges,
+      uiLanguage: UiLanguage.chinese,
+    );
+    configurePhone(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssessmentResultScreen(
+          controller: controller,
+          result: assessmentResult(reliability: AssessmentReliability.invalid),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('本次结果还不够稳定'), findsOneWidget);
+    expect(find.textContaining('7,200'), findsNothing);
+    expect(find.text('保存结果海报'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('assessment-result-poster')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
   });
 }

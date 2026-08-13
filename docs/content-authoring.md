@@ -14,7 +14,9 @@ Every formal word requires spelling, an original English clue, Chinese meaning,
 part of speech, phonetic form, an original example, CEFR, rating, source type,
 and a provenance id. NCE words additionally require Book, Lesson, edition
 `1997`, and double-source verification. NAWL words require list id `NAWL-1.2`
-and an official frequency rank.
+and an official frequency rank. Kaoyan starter words require source type
+`kaoyan`, an NGSL/NAWL list id and rank, plus the audited wordfreq version and
+Zipf frequency used for auxiliary ordering.
 
 Rules:
 
@@ -39,6 +41,11 @@ Rules:
   generator solves one global 600-word exact cover over formally valid triples,
   sorts solved groups by mean then maximum NAWL rank, and requires stage-average
   rank to increase from stage 1 through stage 4.
+- Kaoyan Core Vocabulary · Starter uses four stages with 50 levels each and
+  three words per level. It independently selects 300 NGSL and 300 NAWL words,
+  then uses the checked-in wordfreq 3.1.1 snapshot for auxiliary ordering. Each
+  stage contains exactly 150 words and the course is explicitly not a complete
+  or official postgraduate entrance-exam syllabus.
 - Spellings must be unique inside one curriculum. The same spelling may exist
   in separate curricula only when each course has a distinct word id.
 - User-visible copy must not expose `automated-beta` or other internal review
@@ -90,12 +97,22 @@ two-layer all-ages word/definition filters, every exclusion and replacement,
 and the hash of any explicit editorial override. Overrides pass the same clue,
 example, Chinese, and leakage validator as model-authored entries.
 
+The Kaoyan source is also generated offline. `npm run author:kaoyan-core`
+verifies the NGSL and wordfreq snapshot hashes, the 300/300 source split, all
+600 unique spellings, complete authored fields, and four 150-word stages. To
+refresh only the wordfreq-derived snapshot, use wordfreq 3.1.1 in an isolated
+Python environment and run `scripts/snapshot-kaoyan-wordfreq.py`; commit the
+new hash and attribution together with any intentional snapshot change.
+
 `npm run generate:content-runtime` then writes both the browser runtime and the
-Flutter `catalog.json` plus all 600 offline level bundles. Generation fails on
+Flutter `catalog.json` plus all 800 offline level bundles. Generation fails on
 count drift, source drift, a changed NCE core level, duplicate coverage,
 disconnected/oversized layouts, missing crossings, or incomplete metadata.
 The catalog `contentVersion` hashes resolved NCE words (including source and
 rating), content ratings, the NCE compatibility snapshot, the complete IELTS
-authoring document, and the generator implementation.
+and Kaoyan authoring documents, and the generator implementation. A separate
+compatibility hash freezes the complete semantics and catalog projection of
+all 600 previously shipped NCE/IELTS bundles while allowing only the outer
+catalog `contentVersion` to change.
 
 Legacy ids and URLs are canonicalized under `legacy:` and are excluded from the formal daily course.

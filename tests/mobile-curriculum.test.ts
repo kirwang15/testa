@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import compatibility from "../src/content/vocabulary/generated/nce-core-compatibility.json";
@@ -91,6 +92,32 @@ const ieltsAuthoring = JSON.parse(
     };
   };
 };
+const kaoyanAuthoring = JSON.parse(
+  readFileSync(
+    "src/content/vocabulary/generated/kaoyan-core-v1.json",
+    "utf8"
+  )
+) as {
+  manifest: {
+    wordCount: number;
+    sourceCounts: Record<string, number>;
+    stageCounts: Record<string, number>;
+    sources: Array<{
+      listId: string;
+      bundledSnapshotSha256?: string;
+      license: string;
+    }>;
+  };
+};
+
+const LEGACY_600_SEMANTIC_SHA256 =
+  "30e6a44d56b4ac344c714184685b3ab15fccd1ac339ae9924ebc9c50db1f7ad9";
+const LEGACY_CATALOG_PROJECTION_SHA256 =
+  "fb021b28964fdcc955da94919e6078b652f7b5f8252551a20ddfb69057e0e4f4";
+
+function sha256(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 
 const unsafeWordPatterns = [
   /^adult(?:hood)?$/i,
@@ -181,18 +208,23 @@ function assertFormalBoard(bundle: Bundle) {
 }
 
 describe("mobile multi-curriculum content", () => {
-  test("ships one 600-level catalog with the required course topology", () => {
+  test("ships one 800-level catalog with the required course topology", () => {
     assert.equal(catalog.schemaVersion, 1);
-    assert.equal(catalog.curricula.length, 2);
-    assert.equal(catalog.tracks.length, 8);
-    assert.equal(catalog.levels.length, 600);
-    assert.equal(new Set(catalog.levels.map((entry) => entry.id)).size, 600);
+    assert.equal(catalog.curricula.length, 3);
+    assert.equal(catalog.tracks.length, 12);
+    assert.equal(catalog.levels.length, 800);
+    assert.equal(new Set(catalog.levels.map((entry) => entry.id)).size, 800);
     assert.equal(
       catalog.levels.filter((entry) => entry.curriculumId === "nce-1997").length,
       400
     );
     assert.equal(
       catalog.levels.filter((entry) => entry.curriculumId === "ielts-nawl-v1")
+        .length,
+      200
+    );
+    assert.equal(
+      catalog.levels.filter((entry) => entry.curriculumId === "kaoyan-core-v1")
         .length,
       200
     );
@@ -203,6 +235,79 @@ describe("mobile multi-curriculum content", () => {
         track.id
       );
     }
+  });
+
+  test("ships 600 unique fully-authored Kaoyan starter words", () => {
+    assert.equal(kaoyanAuthoring.manifest.wordCount, 600);
+    assert.deepEqual(kaoyanAuthoring.manifest.sourceCounts, {
+      "NGSL-1.2": 300,
+      "NAWL-1.2": 300
+    });
+    assert.equal(kaoyanAuthoring.manifest.sources.length, 3);
+    assert.deepEqual(kaoyanAuthoring.manifest.stageCounts, {
+      "1": 150,
+      "2": 150,
+      "3": 150,
+      "4": 150
+    });
+    assert.match(
+      kaoyanAuthoring.manifest.sources[0].bundledSnapshotSha256 ?? "",
+      /^sha256:[0-9a-f]{64}$/
+    );
+    assert.ok(
+      kaoyanAuthoring.manifest.sources.every(
+        (source) => source.license === "CC-BY-SA-4.0"
+      )
+    );
+    const spellings = new Set<string>();
+    for (const entry of catalog.levels.filter(
+      (item) => item.curriculumId === "kaoyan-core-v1"
+    )) {
+      const bundle = loadBundle(entry);
+      assertFormalBoard(bundle);
+      assert.equal(bundle.level.targetWords.length, 3, entry.id);
+      for (const word of bundle.vocabulary) {
+        assert.equal(spellings.has(word.word.toLowerCase()), false, word.id);
+        spellings.add(word.word.toLowerCase());
+        assert.match(word.id, /^kaoyan-core-v1-[a-z]+$/);
+        assert.ok(word.englishMeaning.trim().length > 0, word.id);
+        assert.match(word.chineseMeaning, /[\u3400-\u9fff]/u, word.id);
+        assert.ok(word.phonetic.trim().length > 0, word.id);
+        assert.ok(word.partOfSpeech.trim().length > 0, word.id);
+        assert.equal(word.examples.length, 1, word.id);
+        assert.equal(word.source.type, "kaoyan", word.id);
+        assert.ok(["NGSL-1.2", "NAWL-1.2"].includes(String(word.source.listId)));
+        assert.ok(Number(word.source.rank) > 0, word.id);
+      }
+    }
+    assert.equal(spellings.size, 600);
+  });
+
+  test("keeps all 600 previously shipped bundles and catalog entries semantically frozen", () => {
+    const legacyCurriculumIds = new Set(["nce-1997", "ielts-nawl-v1"]);
+    const legacyBundles = catalog.levels
+      .filter((entry) => legacyCurriculumIds.has(entry.curriculumId))
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((entry) => {
+        const { contentVersion: _contentVersion, ...bundle } = loadBundle(entry);
+        return bundle;
+      });
+    assert.equal(legacyBundles.length, 600);
+    assert.equal(sha256(legacyBundles), LEGACY_600_SEMANTIC_SHA256);
+    assert.equal(
+      sha256({
+        curricula: catalog.curricula.filter((entry) =>
+          legacyCurriculumIds.has(entry.id)
+        ),
+        tracks: catalog.tracks.filter((entry) =>
+          legacyCurriculumIds.has(entry.curriculumId)
+        ),
+        levels: catalog.levels.filter((entry) =>
+          legacyCurriculumIds.has(entry.curriculumId)
+        )
+      }),
+      LEGACY_CATALOG_PROJECTION_SHA256
+    );
   });
 
   test("freezes the auditable all-ages NAWL safety policy", () => {

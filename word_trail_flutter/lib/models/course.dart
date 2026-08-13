@@ -2,7 +2,7 @@ import 'dart:convert';
 
 enum WordDirection { across, down }
 
-enum VocabularySourceType { nce, ielts }
+enum VocabularySourceType { nce, ielts, kaoyan }
 
 class GridPoint {
   const GridPoint(this.row, this.col);
@@ -292,6 +292,17 @@ class VocabularySource {
          provenanceId: provenanceId,
        );
 
+  const VocabularySource.kaoyan({
+    required String listId,
+    required int rank,
+    String? provenanceId,
+  }) : this._(
+         type: VocabularySourceType.kaoyan,
+         listId: listId,
+         rank: rank,
+         provenanceId: provenanceId,
+       );
+
   final VocabularySourceType type;
   final int? book;
   final int? lesson;
@@ -301,21 +312,36 @@ class VocabularySource {
 
   bool get isNce => type == VocabularySourceType.nce;
   bool get isIelts => type == VocabularySourceType.ielts;
+  bool get isKaoyan => type == VocabularySourceType.kaoyan;
 
   factory VocabularySource.fromJson(Map<String, dynamic> json) {
     final type = json['type'] as String?;
-    if (type == 'ielts' || json.containsKey('listId')) {
-      return VocabularySource.ielts(
-        listId: (json['listId'] ?? 'NAWL-1.2') as String,
-        rank: (json['rank'] as num? ?? 0).toInt(),
-        provenanceId: json['provenanceId'] as String?,
-      );
+    switch (type) {
+      case 'ielts':
+        return VocabularySource.ielts(
+          listId: (json['listId'] ?? 'NAWL-1.2') as String,
+          rank: (json['rank'] as num? ?? 0).toInt(),
+          provenanceId: json['provenanceId'] as String?,
+        );
+      case 'kaoyan':
+        return VocabularySource.kaoyan(
+          listId: json['listId'] as String,
+          rank: (json['rank'] as num).toInt(),
+          provenanceId: json['provenanceId'] as String?,
+        );
+      case 'nce':
+      case null:
+        if (!json.containsKey('book') || !json.containsKey('lesson')) {
+          throw const FormatException('NCE source is missing book or lesson');
+        }
+        return VocabularySource.nce(
+          book: (json['book'] as num).toInt(),
+          lesson: (json['lesson'] as num).toInt(),
+          provenanceId: json['provenanceId'] as String?,
+        );
+      default:
+        throw FormatException('Unknown vocabulary source type: $type');
     }
-    return VocabularySource.nce(
-      book: (json['book'] as num).toInt(),
-      lesson: (json['lesson'] as num).toInt(),
-      provenanceId: json['provenanceId'] as String?,
-    );
   }
 }
 

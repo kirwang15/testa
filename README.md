@@ -5,9 +5,10 @@ defaults to the all-ages 3+ content profile. A learner selects one clue, fills
 boxed letters, and completes connected across/down words that share crossing
 cells.
 
-The APK contains 600 offline levels: four New Concept English study scopes with
-100 levels per book, plus 200 IELTS preparation vocabulary levels built from
-600 NAWL 1.2 headwords. It is an **unofficial personal learning tool**, not a
+The APK contains 800 offline levels: four New Concept English study scopes with
+100 levels per book, 200 IELTS preparation vocabulary levels, and 200
+independent Kaoyan starter levels built from 300 NGSL 1.2 plus 300 NAWL 1.2
+headwords. It is an **unofficial personal learning tool**, not a
 Pearson or official IELTS product. Review status remains internal and must not
 be presented to learners as product feedback.
 
@@ -61,8 +62,9 @@ npm run build:android-apk
 The command produces one APK containing `armeabi-v7a` and `arm64-v8a`, rejects
 `x86_64` or any unexpected ABI, and fails unless the artifact is smaller than
 50,000,000 bytes. It generates content first and also rejects an APK whose
-embedded catalog is not exactly 2 curricula, 8 tracks, 400 NCE levels, and 200
-IELTS levels. To verify an existing build without rebuilding it, run:
+embedded catalog is not exactly 3 curricula, 12 tracks, 400 NCE levels, 200
+IELTS levels, and 200 Kaoyan starter levels. To verify an existing build
+without rebuilding it, run:
 
 ```bash
 npm run check:android-apk
@@ -94,8 +96,9 @@ The server-rendered level route receives only `levelId + contentVersion`. The br
 
 `npm run generate:content-runtime` creates:
 
-- 400 formal NCE level bundles and 200 formal IELTS preparation bundles for Flutter;
-- one answer-free Flutter curriculum catalog with eight tracks;
+- 400 formal NCE, 200 formal IELTS preparation, and 200 formal Kaoyan starter
+  level bundles for Flutter;
+- one answer-free Flutter curriculum catalog with twelve tracks;
 - 25 hidden Legacy Practice bundles;
 - answer-free curriculum and review indexes;
 - content-addressed manifest metadata.
@@ -109,9 +112,12 @@ Runtime generation is deterministic and never fetches remote content.
 - NCE core and reinforcement each use 3 words in their first 15 levels, 4 in
   the next 20, and 5 in the final 15.
 - Four IELTS preparation stages × 50 levels, with 3 unique NAWL words per level.
+- Four Kaoyan starter stages × 50 levels, with 3 unique words per level: 300
+  selected from NGSL and 300 from NAWL, with wordfreq used for auxiliary ordering.
 - IELTS groups are solved globally from formally valid triples, then ordered so
   average NAWL frequency rank increases across the four stages.
-- 800 unique NCE spellings and 600 unique IELTS-course spellings. Identical
+- 800 unique NCE spellings, 600 unique IELTS-course spellings, and 600 unique
+  Kaoyan-course spellings. Identical
   spellings across curricula retain separate word ids and progress.
 - Complete Book/Lesson/edition/provenance metadata.
 - `rows <= 11` and `cols <= 11`.

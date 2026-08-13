@@ -33,21 +33,24 @@ void expectFormalBoard(CourseLevel level) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('ships 400 NCE and 200 IELTS crossword levels offline', () async {
+  test('ships 400 NCE, 200 IELTS and 200 Kaoyan levels offline', () async {
     final repository = CourseRepository();
     final catalog = await repository.loadCatalog();
     expect(catalog.curricula.map((item) => item.id), <String>[
       'nce-1997',
       'ielts-nawl-v1',
+      'kaoyan-core-v1',
     ]);
-    expect(catalog.levels, hasLength(600));
+    expect(catalog.levels, hasLength(800));
 
     final nceCoreWords = <String>{};
     final nceReinforcementWords = <String>{};
     final ieltsWords = <String>{};
+    final kaoyanWords = <String>{};
     final nceCoreGroups = <String>{};
     var nceCount = 0;
     var ieltsCount = 0;
+    var kaoyanCount = 0;
 
     for (final entry in catalog.levels) {
       final bundle = await repository.loadLevel(entry.id);
@@ -80,7 +83,7 @@ void main() {
         } else {
           expect(nceCoreGroups.contains(signature), isFalse, reason: level.id);
         }
-      } else {
+      } else if (entry.curriculumId == 'ielts-nawl-v1') {
         ieltsCount++;
         expect(level.words, hasLength(3));
         for (final word in level.words) {
@@ -89,13 +92,28 @@ void main() {
           expect(word.source.rank, greaterThan(0));
           expect(ieltsWords.add(word.word), isTrue, reason: word.word);
         }
+      } else {
+        kaoyanCount++;
+        expect(entry.curriculumId, 'kaoyan-core-v1');
+        expect(level.words, hasLength(3));
+        final stage = int.parse(
+          entry.trackId.substring(entry.trackId.length - 1),
+        );
+        for (final word in level.words) {
+          expect(word.source.type, VocabularySourceType.kaoyan);
+          expect(word.source.listId, stage <= 2 ? 'NGSL-1.2' : 'NAWL-1.2');
+          expect(word.source.rank, greaterThan(0));
+          expect(kaoyanWords.add(word.word), isTrue, reason: word.word);
+        }
       }
     }
 
     expect(nceCount, 400);
     expect(ieltsCount, 200);
+    expect(kaoyanCount, 200);
     expect(nceCoreWords, hasLength(800));
     expect(nceReinforcementWords, nceCoreWords);
     expect(ieltsWords, hasLength(600));
+    expect(kaoyanWords, hasLength(600));
   });
 }

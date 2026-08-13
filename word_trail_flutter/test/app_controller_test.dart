@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:word_trail_app/app_controller.dart';
+import 'package:word_trail_app/models/assessment.dart';
 import 'package:word_trail_app/models/player_state.dart';
 import 'package:word_trail_app/services/local_store.dart';
 
@@ -68,7 +69,7 @@ void main() {
   });
 
   test(
-    'v3 migrates to v4 without losing progress, review, coins or age',
+    'v3 migrates to v5 without losing progress, review, coins or age',
     () async {
       final dueAt = DateTime.utc(2026, 8, 1).toIso8601String();
       final raw = jsonEncode({
@@ -127,8 +128,132 @@ void main() {
         dueAt,
       );
       expect(profile.activeDates, {'2026-07-31'});
-      expect(jsonDecode(store.value!)['storageVersion'], 4);
+      expect(jsonDecode(store.value!)['storageVersion'], 5);
       expect(jsonDecode(store.value!)['contentVersion'], 'test-catalog-v1');
+    },
+  );
+
+  test('v4 migrates to v5 with assessment fields empty', () async {
+    final store = MemoryStore(
+      jsonEncode({
+        'storageVersion': 4,
+        'contentVersion': 'legacy-v4',
+        'activeProfileId': 'profile-v4',
+        'profiles': {
+          'profile-v4': {
+            'id': 'profile-v4',
+            'nickname': 'Legacy learner',
+            'ageBand': '3+',
+            'uiLanguage': 'zh-CN',
+            'clueLanguage': 'en',
+            'createdAt': DateTime.utc(2026, 8, 1).toIso8601String(),
+            'activeCurriculumId': 'nce-1997',
+            'hasSeenGettingStarted': true,
+            'coins': 77,
+            'levels': {},
+            'review': {},
+            'activeDates': ['2026-08-01'],
+          },
+        },
+      }),
+    );
+    final controller = testController(store);
+
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.activeProfile!.coins, 77);
+    expect(controller.activeAssessmentSession, isNull);
+    expect(controller.assessmentHistory, isEmpty);
+    expect(jsonDecode(store.value!)['storageVersion'], 5);
+  });
+
+  test(
+    'assessment can pause, resume, complete and retain ten results',
+    () async {
+      final controller = testController();
+      await controller.initialize();
+      controller.createProfile(
+        nickname: 'Assessment learner',
+        ageBand: AgeBand.allAges,
+        uiLanguage: UiLanguage.chinese,
+      );
+
+      await controller.startAssessment(AssessmentAnchor.unrestricted);
+      expect(controller.activeAssessmentSession, isNotNull);
+      final firstQuestion = controller.currentAssessmentQuestion;
+      expect(firstQuestion, isNotNull);
+
+      controller.pauseAssessment();
+      expect(controller.activeAssessmentSession, isNotNull);
+      controller.resumeAssessment();
+      expect(
+        controller.currentAssessmentQuestion!.questionId,
+        firstQuestion!.questionId,
+      );
+
+      while (controller.activeAssessmentSession != null) {
+        final question = controller.currentAssessmentQuestion!;
+        final answer = question.type == AssessmentQuestionType.multipleChoice
+            ? AssessmentAnswer.multipleChoice(
+                selectedOptionIndex: question.item.correctOptionIndex,
+                responseTimeMs: 1200,
+              )
+            : AssessmentAnswer.yesNo(
+                recognized: question.item.kind == AssessmentItemKind.realWord,
+                responseTimeMs: 1200,
+              );
+        controller.submitAssessmentAnswer(answer);
+      }
+
+      expect(controller.assessmentHistory, hasLength(1));
+      expect(controller.latestAssessmentResult!.isComplete, isTrue);
+      for (var index = 0; index < 11; index += 1) {
+        await controller.startAssessment(AssessmentAnchor.primarySchool);
+        while (controller.activeAssessmentSession != null) {
+          final question = controller.currentAssessmentQuestion!;
+          controller.submitAssessmentAnswer(
+            question.type == AssessmentQuestionType.multipleChoice
+                ? AssessmentAnswer.multipleChoice(
+                    selectedOptionIndex: question.item.correctOptionIndex,
+                    responseTimeMs: 1500,
+                  )
+                : AssessmentAnswer.yesNo(
+                    recognized:
+                        question.item.kind == AssessmentItemKind.realWord,
+                    responseTimeMs: 1500,
+                  ),
+          );
+        }
+      }
+      expect(controller.assessmentHistory, hasLength(10));
+
+      await controller.resetActiveProfile();
+      expect(controller.activeAssessmentSession, isNull);
+      expect(controller.assessmentHistory, isEmpty);
+    },
+  );
+
+  test(
+    'unfinished assessment resumes the exact question after restart',
+    () async {
+      final store = MemoryStore();
+      final controller = testController(store);
+      await controller.initialize();
+      controller.createProfile(
+        nickname: 'Resume learner',
+        ageBand: AgeBand.allAges,
+        uiLanguage: UiLanguage.chinese,
+      );
+      await controller.startAssessment(AssessmentAnchor.unrestricted);
+      final questionId = controller.currentAssessmentQuestion!.questionId;
+      await Future<void>.delayed(Duration.zero);
+
+      final restored = testController(store);
+      await restored.initialize();
+
+      expect(restored.activeAssessmentSession, isNotNull);
+      expect(restored.currentAssessmentQuestion!.questionId, questionId);
     },
   );
 

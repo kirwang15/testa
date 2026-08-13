@@ -1,10 +1,16 @@
 const { execFileSync } = require("node:child_process");
-const { statSync } = require("node:fs");
+const { readFileSync, statSync } = require("node:fs");
 const { resolve } = require("node:path");
 
 const MAX_APK_BYTES = 50_000_000;
 const REQUIRED_ABIS = ["armeabi-v7a", "arm64-v8a"];
 const CATALOG_ENTRY = "assets/flutter_assets/assets/content/catalog.json";
+const ASSESSMENT_ENTRY =
+  "assets/flutter_assets/assets/content/assessment/bank-v1.json";
+const EXPECTED_ASSESSMENT_PATH = resolve(
+  __dirname,
+  "../word_trail_flutter/assets/content/assessment/bank-v1.json"
+);
 
 function fail(message) {
   console.error(`Android APK gate failed: ${message}`);
@@ -87,35 +93,40 @@ const nceLevels = levels.filter((level) => level.curriculumId === "nce-1997");
 const ieltsLevels = levels.filter(
   (level) => level.curriculumId === "ielts-nawl-v1"
 );
+const kaoyanLevels = levels.filter(
+  (level) => level.curriculumId === "kaoyan-core-v1"
+);
 if (
   catalog.schemaVersion !== 1 ||
   typeof catalog.contentVersion !== "string" ||
   !catalog.contentVersion.startsWith("word-trail-") ||
-  curricula.length !== 2 ||
-  tracks.length !== 8 ||
-  levels.length !== 600 ||
+  curricula.length !== 3 ||
+  tracks.length !== 12 ||
+  levels.length !== 800 ||
   nceLevels.length !== 400 ||
   ieltsLevels.length !== 200 ||
-  new Set(levels.map((level) => level.id)).size !== 600
+  kaoyanLevels.length !== 200 ||
+  new Set(levels.map((level) => level.id)).size !== 800
 ) {
   fail(
     `embedded catalog topology is invalid: version=${catalog.contentVersion || "missing"}, ` +
       `curricula=${curricula.length}, tracks=${tracks.length}, levels=${levels.length}, ` +
-      `NCE=${nceLevels.length}, IELTS=${ieltsLevels.length}`
+      `NCE=${nceLevels.length}, IELTS=${ieltsLevels.length}, Kaoyan=${kaoyanLevels.length}`
   );
 }
 
 const curriculumIds = curricula.map((curriculum) => curriculum.id).sort();
 if (
   JSON.stringify(curriculumIds) !==
-  JSON.stringify(["ielts-nawl-v1", "nce-1997"])
+  JSON.stringify(["ielts-nawl-v1", "kaoyan-core-v1", "nce-1997"])
 ) {
   fail(`embedded curriculum ids are invalid: ${curriculumIds.join(",")}`);
 }
 
 const requiredTrackCounts = Object.fromEntries([
   ...[1, 2, 3, 4].map((book) => [`nce-1997-b${book}`, 100]),
-  ...[1, 2, 3, 4].map((stage) => [`ielts-nawl-v1-s${stage}`, 50])
+  ...[1, 2, 3, 4].map((stage) => [`ielts-nawl-v1-s${stage}`, 50]),
+  ...[1, 2, 3, 4].map((stage) => [`kaoyan-core-v1-s${stage}`, 50])
 ]);
 
 for (const track of tracks) {
@@ -153,7 +164,87 @@ for (const level of levels) {
   }
 }
 
+if (!entries.includes(ASSESSMENT_ENTRY)) {
+  fail(`embedded assessment bank is missing: ${ASSESSMENT_ENTRY}`);
+}
+
+let assessmentBank;
+let expectedAssessmentBank;
+try {
+  assessmentBank = JSON.parse(
+    execFileSync("unzip", ["-p", apkPath, ASSESSMENT_ENTRY], {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024
+    })
+  );
+  expectedAssessmentBank = JSON.parse(
+    readFileSync(EXPECTED_ASSESSMENT_PATH, "utf8")
+  );
+} catch (error) {
+  fail(`cannot read embedded assessment bank: ${error.message}`);
+}
+
+const assessmentItems = Array.isArray(assessmentBank.items)
+  ? assessmentBank.items
+  : [];
+const realAssessmentItems = assessmentItems.filter(
+  (item) => item.itemType === "realWord"
+);
+const pseudowordAssessmentItems = assessmentItems.filter(
+  (item) => item.itemType === "pseudoword"
+);
+if (
+  assessmentBank.schemaVersion !== 1 ||
+  typeof assessmentBank.bankVersion !== "string" ||
+  !assessmentBank.bankVersion.startsWith("assessment-proxy-v1-") ||
+  assessmentBank.bankVersion !== expectedAssessmentBank.bankVersion ||
+  assessmentBank.sourceHash !== expectedAssessmentBank.sourceHash ||
+  assessmentBank.calibrationStatus !== "proxy-v1" ||
+  assessmentBank.estimateRange?.min !== 0 ||
+  assessmentBank.estimateRange?.max !== 20000 ||
+  assessmentItems.length !== 1440 ||
+  realAssessmentItems.length !== 1200 ||
+  pseudowordAssessmentItems.length !== 240 ||
+  new Set(assessmentItems.map((item) => item.itemId)).size !== 1440 ||
+  new Set(assessmentItems.map((item) => item.lemmaId)).size !== 1440 ||
+  new Set(assessmentItems.map((item) => item.spelling)).size !== 1440
+) {
+  fail(
+    `embedded assessment topology is invalid: version=${assessmentBank.bankVersion || "missing"}, ` +
+      `items=${assessmentItems.length}, real=${realAssessmentItems.length}, ` +
+      `pseudowords=${pseudowordAssessmentItems.length}`
+  );
+}
+
+for (let band = 1; band <= 20; band += 1) {
+  const realCount = realAssessmentItems.filter(
+    (item) => item.frequencyBand === band
+  ).length;
+  const pseudowordCount = pseudowordAssessmentItems.filter(
+    (item) => item.frequencyBand === band
+  ).length;
+  if (realCount !== 60 || pseudowordCount !== 12) {
+    fail(
+      `embedded assessment band ${band} is invalid: ` +
+        `real=${realCount}, pseudowords=${pseudowordCount}`
+    );
+  }
+}
+
+for (const item of realAssessmentItems) {
+  if (
+    !Array.isArray(item.options) ||
+    item.options.length !== 4 ||
+    new Set(item.options).size !== 4 ||
+    item.options[item.correctOptionIndex] !== item.meaning ||
+    item.calibrationStatus !== "proxy-v1"
+  ) {
+    fail(`embedded assessment item ${item.itemId || "unknown"} is invalid`);
+  }
+}
+
 console.log(
   `Android APK gate passed: ${apkSize} bytes; ABIs: ${REQUIRED_ABIS.join(", ")}; ` +
-    `catalog ${catalog.contentVersion}: 400 NCE + 200 IELTS`
+    `catalog ${catalog.contentVersion}: 400 NCE + 200 IELTS + 200 Kaoyan; ` +
+    `assessment ${assessmentBank.bankVersion}: 1200 real + 240 pseudowords`
 );

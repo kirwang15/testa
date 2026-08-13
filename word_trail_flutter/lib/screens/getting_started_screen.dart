@@ -265,6 +265,13 @@ class _StepPreview extends StatelessWidget {
               label: t('guide.ielts'),
             ),
           ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _PreviewPill(
+              icon: Icons.workspace_premium_rounded,
+              label: t('guide.kaoyan'),
+            ),
+          ),
         ],
       ),
       1 => Row(

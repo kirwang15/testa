@@ -47,3 +47,36 @@ British Council, and IDP Education Australia. Word Trail is an independent,
 unofficial vocabulary-practice tool and is not approved, endorsed, or produced
 by those organizations. The bundled course is preparation material, not an
 official IELTS word list or test product.
+
+## New General Service List 1.2 and Kaoyan starter course
+
+The independent “Kaoyan Core Vocabulary · Starter” course selects 300
+headwords from NGSL 1.2 and 300 headwords from NAWL 1.2. It is a 600-word
+starter reference, not a complete or official postgraduate entrance-exam
+syllabus. No exam questions, official definitions, or commercial dictionary
+entries are bundled.
+
+The New General Service List 1.2 by Charles Browne, Brent Culligan, and Joseph
+Phillips is licensed under CC BY-SA 4.0:
+
+- Source and attribution: https://www.newgeneralservicelist.com/new-general-service-list
+- License: https://creativecommons.org/licenses/by-sa/4.0/
+- Bundled source snapshot: `src/content/vocabulary/sources/ngsl-1.2-basic-stats.csv`
+- Upstream snapshot SHA-256: `2098bab8955a120a9766c6282a51d7d578c6cb0a7d946600d2ffb73ba25a0b44`
+- LF-normalized bundled SHA-256: `af00443ff394cbd18546612ce935498f3ccc8465bb2d4a47f576d7da51e7a3d6`
+
+Word Trail uses NGSL and NAWL only for auditable headword selection and rank
+provenance. The checked-in wordfreq 3.1.1 snapshot supplies auxiliary English
+Zipf frequencies used only to order the selected words:
+
+- Project and attribution: https://github.com/rspeer/wordfreq
+- Software license: Apache License 2.0
+- Redistributable data license: CC BY-SA 4.0, with upstream corpus attribution
+  detailed by the wordfreq project
+- Citation: Robyn Speer, wordfreq v3.0, https://doi.org/10.5281/zenodo.7199437
+- Bundled derived snapshot: `src/content/vocabulary/sources/kaoyan-wordfreq-3.1.1.csv`
+- Snapshot SHA-256: `793643c75edca398e298f0bc95fcb4ea9fe91b1a98effa4161b6983b78cf3bc5`
+
+Chinese glosses, clues, phonetics, examples, course grouping, and crossword
+layouts are locally authored or adapted from the project's existing
+open-licensed content and remain marked for editorial review.

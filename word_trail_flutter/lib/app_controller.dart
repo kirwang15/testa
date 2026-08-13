@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+import 'data/assessment_repository.dart';
 import 'data/course_repository.dart';
+import 'models/assessment.dart';
 import 'models/course.dart';
 import 'models/player_state.dart';
 import 'services/local_store.dart';
+import 'services/vocabulary_assessment_engine.dart';
 
 enum StorageStatus {
   loading,
@@ -18,15 +21,23 @@ enum StorageStatus {
 }
 
 class AppController extends ChangeNotifier {
-  AppController({CourseRepository? repository, LocalStore? store})
-    : repository = repository ?? CourseRepository(),
-      _store = store ?? LocalStore();
+  AppController({
+    CourseRepository? repository,
+    AssessmentRepository? assessmentRepository,
+    LocalStore? store,
+  }) : repository = repository ?? CourseRepository(),
+       assessmentRepository = assessmentRepository ?? AssessmentRepository(),
+       _store = store ?? LocalStore();
 
-  static const storageVersion = 4;
+  static const storageVersion = 5;
   static const defaultCurriculumId = 'nce-1997';
 
   final CourseRepository repository;
+  final AssessmentRepository assessmentRepository;
   final LocalStore _store;
+  AssessmentBank? _assessmentBank;
+  VocabularyAssessmentEngine? _assessmentEngine;
+  bool _assessmentPaused = false;
 
   StorageStatus storageStatus = StorageStatus.loading;
   Map<String, PlayerProfile> _profiles = {};
@@ -38,6 +49,21 @@ class AppController extends ChangeNotifier {
       activeProfile != null && !activeProfile!.hasSeenGettingStarted;
   List<PlayerProfile> get profiles => _profiles.values.toList(growable: false);
   PlayerProfile? get activeProfile => _profiles[_activeProfileId];
+  AssessmentSession? get activeAssessmentSession =>
+      activeProfile?.activeAssessmentSession;
+  List<AssessmentSession> get assessmentHistory =>
+      activeProfile?.assessmentHistory ?? const <AssessmentSession>[];
+  AssessmentSession? get latestAssessmentResult =>
+      assessmentHistory.isEmpty ? null : assessmentHistory.first;
+  bool get isAssessmentPaused => _assessmentPaused;
+  bool get isAssessmentAvailable => _assessmentBank != null;
+  AssessmentQuestion? get currentAssessmentQuestion {
+    final session = activeAssessmentSession;
+    final engine = _assessmentEngine;
+    if (session == null || session.isComplete || engine == null) return null;
+    return engine.nextQuestion(session);
+  }
+
   CurriculumCatalog get catalog => repository.catalog!;
   String get contentVersion => catalog.contentVersion;
 
@@ -53,7 +79,12 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      await repository.loadCatalog();
+      await Future.wait([
+        repository.loadCatalog(),
+        assessmentRepository.loadBank().then((bank) {
+          _assessmentBank = bank;
+        }),
+      ]);
     } catch (_) {
       storageStatus = StorageStatus.contentUnavailable;
       notifyListeners();
@@ -75,7 +106,7 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      if (version != 3 && version != storageVersion) {
+      if (version != 3 && version != 4 && version != storageVersion) {
         throw const FormatException('Unsupported legacy Flutter save');
       }
       final rawProfiles = json['profiles'] as Map<String, dynamic>? ?? const {};
@@ -102,6 +133,12 @@ class AppController extends ChangeNotifier {
             levels: parsed.levels,
             review: parsed.review,
             activeDates: parsed.activeDates,
+            activeAssessmentSession:
+                parsed.activeAssessmentSession?.bankVersion ==
+                    _assessmentBank!.bankVersion
+                ? parsed.activeAssessmentSession
+                : null,
+            assessmentHistory: parsed.assessmentHistory,
           ),
         );
       });
@@ -110,7 +147,8 @@ class AppController extends ChangeNotifier {
           ? requestedActive
           : (_profiles.isEmpty ? null : _profiles.keys.first);
       storageStatus = StorageStatus.ready;
-      if (version == 3) unawaited(_persist());
+      _rebuildAssessmentEngine();
+      if (version != storageVersion) unawaited(_persist());
     } catch (_) {
       _profiles = {};
       _activeProfileId = null;
@@ -149,6 +187,8 @@ class AppController extends ChangeNotifier {
   void switchProfile(String id) {
     if (!_profiles.containsKey(id) || id == _activeProfileId) return;
     _activeProfileId = id;
+    _assessmentPaused = false;
+    _rebuildAssessmentEngine();
     _commit();
   }
 
@@ -163,6 +203,75 @@ class AppController extends ChangeNotifier {
     final profile = activeProfile;
     if (profile == null || profile.hasSeenGettingStarted) return;
     _replaceActive(profile.copyWith(hasSeenGettingStarted: true));
+  }
+
+  Future<void> startAssessment(AssessmentAnchor anchor) async {
+    final profile = activeProfile;
+    if (profile == null) return;
+    final bank = _assessmentBank ?? await assessmentRepository.loadBank();
+    _assessmentBank = bank;
+    final startedAt = DateTime.now();
+    _assessmentEngine = VocabularyAssessmentEngine(
+      bank: bank,
+      seed: startedAt.microsecondsSinceEpoch,
+      previouslyExposedLemmaIds: _previouslyExposedLemmaIds(bank),
+    );
+    _assessmentPaused = false;
+    _replaceActive(
+      profile.copyWith(
+        activeAssessmentSession: _assessmentEngine!.start(
+          anchor,
+          startedAt: startedAt,
+        ),
+      ),
+    );
+  }
+
+  AssessmentStep submitAssessmentAnswer(AssessmentAnswer answer) {
+    final profile = activeProfile;
+    final session = profile?.activeAssessmentSession;
+    final engine = _assessmentEngine;
+    final question = currentAssessmentQuestion;
+    if (profile == null ||
+        session == null ||
+        engine == null ||
+        question == null) {
+      throw StateError('No active assessment question');
+    }
+    final step = engine.submit(session, question, answer);
+    if (step.session.isComplete) {
+      _replaceActive(
+        profile.copyWith(
+          clearActiveAssessmentSession: true,
+          assessmentHistory: <AssessmentSession>[
+            step.session,
+            ...profile.assessmentHistory,
+          ].take(10).toList(growable: false),
+        ),
+      );
+    } else {
+      _replaceActive(profile.copyWith(activeAssessmentSession: step.session));
+    }
+    return step;
+  }
+
+  void pauseAssessment() {
+    if (activeAssessmentSession == null || _assessmentPaused) return;
+    _assessmentPaused = true;
+    _commit();
+  }
+
+  void resumeAssessment() {
+    if (activeAssessmentSession == null || !_assessmentPaused) return;
+    _assessmentPaused = false;
+    notifyListeners();
+  }
+
+  void abandonAssessment() {
+    final profile = activeProfile;
+    if (profile?.activeAssessmentSession == null) return;
+    _assessmentPaused = false;
+    _replaceActive(profile!.copyWith(clearActiveAssessmentSession: true));
   }
 
   void updatePreferences({
@@ -409,6 +518,38 @@ class AppController extends ChangeNotifier {
   void _replaceActive(PlayerProfile profile) {
     _profiles = {..._profiles, profile.id: profile};
     _commit();
+  }
+
+  void _rebuildAssessmentEngine() {
+    final bank = _assessmentBank;
+    final session = activeAssessmentSession;
+    if (bank == null || session == null) {
+      _assessmentEngine = null;
+      return;
+    }
+    _assessmentEngine = VocabularyAssessmentEngine(
+      bank: bank,
+      seed: session.startedAt.microsecondsSinceEpoch,
+      previouslyExposedLemmaIds: _previouslyExposedLemmaIds(bank),
+    );
+  }
+
+  Set<String> _previouslyExposedLemmaIds(AssessmentBank bank) {
+    final wordIds =
+        activeProfile?.levels.entries
+            .expand((entry) => entry.value.solvedWordIds)
+            .toSet() ??
+        const <String>{};
+    return bank.realItems
+        .where(
+          (item) => wordIds.any(
+            (wordId) =>
+                wordId.endsWith('-${item.spelling}') ||
+                wordId.contains('-${item.spelling}-'),
+          ),
+        )
+        .map((item) => item.lemmaId)
+        .toSet();
   }
 
   void _commit() {

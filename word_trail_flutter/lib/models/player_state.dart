@@ -1,3 +1,5 @@
+import 'assessment.dart';
+
 enum UiLanguage { english, chinese }
 
 enum AgeBand { allAges, sevenToNine, tenToTwelve, thirteenToFifteen }
@@ -158,6 +160,8 @@ class PlayerProfile {
     this.levels = const {},
     this.review = const {},
     this.activeDates = const <String>{},
+    this.activeAssessmentSession,
+    this.assessmentHistory = const <AssessmentSession>[],
   });
 
   final String id;
@@ -172,6 +176,8 @@ class PlayerProfile {
   final Map<String, LevelProgress> levels;
   final Map<String, ReviewDebt> review;
   final Set<String> activeDates;
+  final AssessmentSession? activeAssessmentSession;
+  final List<AssessmentSession> assessmentHistory;
 
   PlayerProfile copyWith({
     String? nickname,
@@ -184,6 +190,9 @@ class PlayerProfile {
     Map<String, LevelProgress>? levels,
     Map<String, ReviewDebt>? review,
     Set<String>? activeDates,
+    AssessmentSession? activeAssessmentSession,
+    bool clearActiveAssessmentSession = false,
+    List<AssessmentSession>? assessmentHistory,
   }) => PlayerProfile(
     id: id,
     nickname: nickname ?? this.nickname,
@@ -197,6 +206,10 @@ class PlayerProfile {
     levels: levels ?? this.levels,
     review: review ?? this.review,
     activeDates: activeDates ?? this.activeDates,
+    activeAssessmentSession: clearActiveAssessmentSession
+        ? null
+        : activeAssessmentSession ?? this.activeAssessmentSession,
+    assessmentHistory: assessmentHistory ?? this.assessmentHistory,
   );
 
   Map<String, dynamic> toJson() => {
@@ -212,6 +225,11 @@ class PlayerProfile {
     'levels': levels.map((key, value) => MapEntry(key, value.toJson())),
     'review': review.map((key, value) => MapEntry(key, value.toJson())),
     'activeDates': activeDates.toList(),
+    'activeAssessmentSession': activeAssessmentSession?.toJson(),
+    'assessmentHistory': assessmentHistory
+        .take(10)
+        .map((session) => session.toJson())
+        .toList(),
   };
 
   factory PlayerProfile.fromJson(Map<String, dynamic> json) {
@@ -251,6 +269,33 @@ class PlayerProfile {
       activeDates: (json['activeDates'] as List<dynamic>? ?? const [])
           .whereType<String>()
           .toSet(),
+      activeAssessmentSession: _parseAssessmentSession(
+        json['activeAssessmentSession'],
+        requireComplete: false,
+      ),
+      assessmentHistory:
+          (json['assessmentHistory'] as List<dynamic>? ?? const [])
+              .map(
+                (value) =>
+                    _parseAssessmentSession(value, requireComplete: true),
+              )
+              .whereType<AssessmentSession>()
+              .take(10)
+              .toList(growable: false),
     );
+  }
+}
+
+AssessmentSession? _parseAssessmentSession(
+  Object? value, {
+  required bool requireComplete,
+}) {
+  if (value is! Map<String, dynamic>) return null;
+  try {
+    final session = AssessmentSession.fromJson(value);
+    if (session.isComplete != requireComplete) return null;
+    return session;
+  } catch (_) {
+    return null;
   }
 }

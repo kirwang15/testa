@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "author:kaoyan-core": "node scripts/author-kaoyan-core.cjs",
     "dev": "npm run generate:content-runtime && next dev",
     "generate:content-runtime": "rm -rf .content-dist && tsc -p tsconfig.content.json && node scripts/generate-runtime-content.cjs && node scripts/generate-mobile-curriculum.cjs && rm -rf .content-dist",
     "build": "npm run generate:content-runtime && next build && npm run check:bundle-boundaries",

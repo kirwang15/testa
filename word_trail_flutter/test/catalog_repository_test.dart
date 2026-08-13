@@ -108,6 +108,26 @@ void main() {
     );
   });
 
+  test('vocabulary sources parse Kaoyan and reject unknown types', () {
+    final kaoyan = VocabularySource.fromJson({
+      'type': 'kaoyan',
+      'listId': 'NGSL-1.2',
+      'rank': 252,
+      'provenanceId': 'test-ngsl',
+    });
+    expect(kaoyan.type, VocabularySourceType.kaoyan);
+    expect(kaoyan.listId, 'NGSL-1.2');
+    expect(kaoyan.rank, 252);
+    expect(
+      () => VocabularySource.fromJson({
+        'type': 'mystery',
+        'listId': 'unknown',
+        'rank': 1,
+      }),
+      throwsFormatException,
+    );
+  });
+
   test('repository rejects a level bundle from another content version', () {
     final repository = CourseRepository(
       assetBundle: MemoryAssetBundle({
