@@ -21,6 +21,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
   final _answerController = TextEditingController();
   int _index = 0;
   bool _wrong = false;
+  String? _promptKey;
+  Future<_ReviewPrompt>? _promptFuture;
 
   @override
   void dispose() {
@@ -64,7 +66,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             )
           else
             FutureBuilder<_ReviewPrompt>(
-              future: _loadPrompt(due[_index.clamp(0, due.length - 1)]),
+              future: _promptFor(due[_index.clamp(0, due.length - 1)]),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return TrailCard(child: Text(t('game.loadError')));
@@ -127,7 +129,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                         textCapitalization: TextCapitalization.characters,
                         decoration: InputDecoration(
                           border: const OutlineInputBorder(),
-                          labelText: t('game.submit'),
+                          labelText: t('review.submit'),
                           errorText: _wrong ? t('game.wrongBody') : null,
                         ),
                         onSubmitted: (_) => _check(prompt, due.length, t),
@@ -136,7 +138,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       FilledButton.icon(
                         onPressed: () => _check(prompt, due.length, t),
                         icon: const Icon(Icons.check_rounded),
-                        label: Text(t('game.submit')),
+                        label: Text(t('review.submit')),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
@@ -145,6 +147,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                             builder: (_) => GameScreen(
                               controller: widget.controller,
                               levelId: prompt.debt.levelId,
+                              returnContext: const GameReturnContext.review(),
                             ),
                           ),
                         ),
@@ -167,6 +170,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
       (item) => item.id == debt.wordId,
     );
     return _ReviewPrompt(debt, bundle.level, word);
+  }
+
+  Future<_ReviewPrompt> _promptFor(ReviewDebt debt) {
+    final key = '${debt.levelId}:${debt.wordId}';
+    if (_promptKey != key || _promptFuture == null) {
+      _promptKey = key;
+      _promptFuture = _loadPrompt(debt);
+    }
+    return _promptFuture!;
   }
 
   void _check(_ReviewPrompt prompt, int total, AppStrings t) {

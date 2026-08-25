@@ -616,6 +616,21 @@ describe("progress and persistence", () => {
     assert.equal(restored.studyStats.totalWordsMastered, 0);
   });
 
+  test("keeps learned totals from all three curriculum namespaces during migration", () => {
+    const restored = mergePersistedGameProgress({
+      words: {
+        "nce-1997-b1-word-known": { correctCount: 1, masteryLevel: 1 },
+        "ielts-nawl-v1-word-known": { correctCount: 1, masteryLevel: 1 },
+        "kaoyan-core-v1-word-known": { correctCount: 1, masteryLevel: 1 },
+        "unknown-corrupted-word": { correctCount: 999, masteryLevel: 5 }
+      },
+      studyStats: { totalWordsLearned: 99, totalWordsMastered: 99 }
+    }, createInitialGameProgress());
+
+    assert.equal(restored.studyStats.totalWordsLearned, 3);
+    assert.equal(restored.studyStats.totalWordsMastered, 0);
+  });
+
   test("repairs an all-found incomplete save without awarding coins", () => {
     const level = getTestLevel();
     const progress = mergePersistedGameProgress({

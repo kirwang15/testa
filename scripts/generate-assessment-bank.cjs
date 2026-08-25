@@ -12,7 +12,28 @@ const outputDirectory = path.join(
   'word_trail_flutter/assets/content/assessment',
 );
 const outputPath = path.join(outputDirectory, 'bank-v1.json');
-const generatorVersion = 'assessment-bank-generator-v1';
+const generatorVersion = 'assessment-bank-generator-v2';
+const broadPhaseRules = Object.freeze({
+  totalItems: 20,
+  realItems: 16,
+  pseudowordItems: 4,
+  realBands: [1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 16, 17, 18, 20],
+  pseudowordSlots: [3, 8, 13, 18],
+  pseudowordBands: [4, 9, 14, 19],
+});
+const stoppingRules = Object.freeze({
+  minimumScoringItems: 48,
+  maximumScoringItems: 76,
+  wrapUpItems: 4,
+  minimumMultipleChoiceItems: 12,
+  minimumBasicItems: 4,
+  minimumAdvancedItems: 4,
+  minimumTargetItems: 4,
+  standardErrorThreshold: 0.32,
+  relativeEstimateChangeThreshold: 0.03,
+  stableEstimateChanges: 6,
+  informationThreshold: 0.08,
+});
 
 function normalizedPartOfSpeech(value) {
   const source = String(value || '').toLowerCase();
@@ -253,18 +274,6 @@ for (let band = 1; band <= 20; band += 1) {
   }
 }
 
-const sourceSnapshot = JSON.stringify({
-  generatorVersion,
-  words: words.map((word) => ({
-    spelling: word.spelling,
-    meaning: word.meaning,
-    partOfSpeech: word.partOfSpeech,
-    cefr: word.cefr,
-    sourceId: word.sourceId,
-  })),
-  pseudowords: pseudowordItems.map((item) => item.spelling),
-});
-const sourceHash = stableHash(sourceSnapshot);
 const anchors = [
   ['primarySchool', 1000, 2000, 0.9],
   ['middleSchool', 2000, 4000, 1],
@@ -281,23 +290,33 @@ const anchors = [
   priorStandardDeviation,
 }));
 
+// The bank identity covers every input that can affect item selection,
+// scoring, interpretation or attribution. Hashing only spellings would allow
+// a changed option key or IRT parameter to masquerade as the same bank.
+const modelSnapshot = JSON.stringify({
+  generatorVersion,
+  schemaVersion: 2,
+  policyVersion: 2,
+  estimateRange: { min: 0, max: 20000 },
+  calibrationStatus: 'proxy-v1',
+  anchorProfiles: anchors,
+  broadPhaseRules,
+  stoppingRules,
+  items: [...realItems, ...pseudowordItems],
+});
+const sourceHash = stableHash(modelSnapshot);
+
 const bank = {
-  schemaVersion: 1,
-  bankVersion: `assessment-proxy-v1-${sourceHash.slice(0, 16)}`,
+  schemaVersion: 2,
+  policyVersion: 2,
+  bankVersion: `assessment-proxy-v2-${sourceHash.slice(0, 16)}`,
   estimateRange: { min: 0, max: 20000 },
   calibrationStatus: 'proxy-v1',
   generatorVersion,
   sourceHash,
   anchorProfiles: anchors,
-  stoppingRules: {
-    minimumScoringItems: 24,
-    maximumScoringItems: 38,
-    wrapUpItems: 2,
-    minimumMultipleChoiceItems: 6,
-    standardErrorThreshold: 0.45,
-    relativeEstimateChangeThreshold: 0.05,
-    informationThreshold: 0.16,
-  },
+  broadPhaseRules,
+  stoppingRules,
   items: [...realItems, ...pseudowordItems],
 };
 

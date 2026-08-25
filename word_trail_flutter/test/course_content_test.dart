@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:word_trail_app/data/course_repository.dart';
 import 'package:word_trail_app/models/course.dart';
+import 'package:word_trail_app/models/player_state.dart';
 
 void expectFormalBoard(CourseLevel level) {
   expect(level.rows, lessThanOrEqualTo(11), reason: level.id);
@@ -115,5 +116,18 @@ void main() {
     expect(nceReinforcementWords, nceCoreWords);
     expect(ieltsWords, hasLength(600));
     expect(kaoyanWords, hasLength(600));
+  });
+
+  test('the production tutorial level is a real three-word level', () async {
+    final repository = CourseRepository();
+    await repository.loadCatalog();
+    final bundle = await repository.loadLevel(TutorialProgress.defaultLevelId);
+
+    expect(bundle.level.id, 'nce-1997-b1-level-001');
+    expect(bundle.level.words.map((word) => word.word), [
+      'WHAT',
+      'HERE',
+      'SORRY',
+    ]);
   });
 }

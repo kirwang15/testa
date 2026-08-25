@@ -27,14 +27,16 @@ import {
 import { createInitialGameProgress } from "../lib/progress";
 import type { PlayerProfile } from "../types/game";
 
-describe("profiled progress v3", () => {
+describe("profiled progress v4", () => {
   test("creates a guided local profile with English clues for a fresh install", () => {
     const state = createInitialProfiledGameProgress();
     const profile = getActiveProfile(state);
 
     assert.equal(profile.ageBand, "10-12");
     assert.equal(profile.onboardingCompleted, false);
-    assert.equal(state.storageVersion, 3);
+    assert.equal(state.storageVersion, 4);
+    assert.equal(profile.tutorialProgress.phase, "intro");
+    assert.equal(profile.tutorialProgress.status, "in-progress");
     assert.equal(state.contentVersion, GAME_CONTENT_VERSION);
     assert.deepEqual(profile.preferences, {
       interfaceMode: "guided",
@@ -42,6 +44,40 @@ describe("profiled progress v3", () => {
       clueLanguage: "en"
     });
     assert.equal(getActiveGameProgress(state).coins, 100);
+  });
+
+  test("starts an explicitly onboarded new profile at the contextual home tutorial", () => {
+    const profile = createDefaultPlayerProfile({
+      id: "settings-profile",
+      onboardingCompleted: true
+    });
+
+    assert.equal(profile.tutorialProgress.status, "in-progress");
+    assert.equal(profile.tutorialProgress.phase, "home");
+  });
+
+  test("repairs an onboarded profile that was persisted at the pre-home intro phase", () => {
+    const restored = normalizeProfiledGameProgress({
+      profiles: {
+        learner: {
+          id: "learner",
+          nickname: "Learner",
+          onboardingCompleted: true,
+          tutorialProgress: {
+            version: 1,
+            status: "in-progress",
+            phase: "intro",
+            tutorialLevelId: "nce-1997-b1-level-001",
+            firstWordDetailSeen: false,
+            collapsed: false
+          }
+        }
+      },
+      activeProfileId: "learner",
+      progressByProfileId: { learner: createInitialGameProgress() }
+    });
+
+    assert.equal(restored.profiles.learner?.tutorialProgress.phase, "home");
   });
 
   test("migrates a v1 flat save once and preserves progress as Legacy-compatible ids", () => {
@@ -189,7 +225,7 @@ describe("profiled progress v3", () => {
     assert.equal(removed.progressByProfileId.second, undefined);
   });
 
-  test("serializes a version 3 profile container with its content version", () => {
+  test("serializes a version 4 profile container with its content version", () => {
     const state = createInitialProfiledGameProgress();
     const raw = serializePersistedProfiledGameProgress(state);
     const envelope = JSON.parse(raw) as {
@@ -239,8 +275,34 @@ describe("profiled progress v3", () => {
     };
     const migrated = migratePersistedGameState(envelope);
 
-    assert.equal(migrated.storageVersion, 3);
+    assert.equal(migrated.storageVersion, 4);
     assert.ok(migrated.contentVersion);
+    assert.deepEqual(migratePersistedGameState(migrated), migrated);
+  });
+
+  test("migrates v3 to v4 without forcing an existing learner through the tutorial", () => {
+    const existing = createDefaultPlayerProfile({
+      id: "existing",
+      nickname: "Existing",
+      onboardingCompleted: true
+    });
+    const { tutorialProgress: _removed, ...v3Profile } = existing;
+    const migrated = migratePersistedGameState({
+      version: 3,
+      state: {
+        storageVersion: 3,
+        contentVersion: "older-content",
+        profiles: { existing: v3Profile },
+        activeProfileId: "existing",
+        progressByProfileId: {
+          existing: { ...createInitialGameProgress(), coins: 321 }
+        }
+      }
+    });
+
+    assert.equal(migrated.storageVersion, 4);
+    assert.equal(migrated.profiles.existing?.tutorialProgress.status, "completed");
+    assert.equal(getActiveGameProgress(migrated).coins, 321);
     assert.deepEqual(migratePersistedGameState(migrated), migrated);
   });
 
@@ -315,7 +377,7 @@ describe("profiled progress v3", () => {
     assert.deepEqual(inspectStoredEnvelope(mismatched), {
       status: "unsupported-version",
       raw: null,
-      version: 3
+      version: 4
     });
     assert.throws(
       () => migratePersistedGameState(JSON.parse(futureInner)),
@@ -323,7 +385,7 @@ describe("profiled progress v3", () => {
     );
     assert.throws(
       () => migratePersistedGameState(JSON.parse(mismatched)),
-      /Unsupported Word Trail storage version: 3/
+      /Unsupported Word Trail storage version: 4/
     );
     assert.equal(deserializePersistedProfiledGameProgress(futureInner), undefined);
     assert.equal(deserializePersistedProfiledGameProgress(mismatched), undefined);
@@ -360,7 +422,7 @@ describe("profiled progress v3", () => {
   });
 
   test("fails closed before wrapping a flat future-version save", () => {
-    for (const version of [4, 999]) {
+    for (const version of [5, 999]) {
       const raw = JSON.stringify({
         storageVersion: version,
         profiles: {},

@@ -25,7 +25,8 @@ import {
   selectIsReadOnly,
   useGameStore
 } from "@/store/gameStore";
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
+import { translateReview, type ReviewTranslationKey } from "@/lib/review-i18n";
 import type {
   ProfileActionContext,
   ReviewMetadataIndex,
@@ -35,7 +36,9 @@ import type {
 let reviewActionSessionSequence = 0;
 
 export default function ReviewPage() {
-  const { t } = useI18n();
+  const { language, t } = useLevelI18n();
+  const rt = (key: ReviewTranslationKey, params?: Record<string, string | number>) =>
+    translateReview(language, key, params);
   const activeProgress = useGameStore(selectActiveGameProgress);
   const activeProfile = useGameStore(selectActiveProfile);
   const hasHydrated = useGameStore((state) => state.hasHydrated);
@@ -103,7 +106,7 @@ export default function ReviewPage() {
           english: current.word.englishMeaning,
           chinese: current.word.chineseMeaning
         },
-        t("review.guessSound"),
+        rt("guessSound"),
         current.word.source
       )
     : undefined;
@@ -274,18 +277,18 @@ export default function ReviewPage() {
       return;
     }
     if (result === "wrong") {
-      setFeedback(t("review.wrong"));
+      setFeedback(rt("wrong"));
       return;
     }
     if (result === "unknown-word") {
-      setFeedback(t("review.unknown"));
+      setFeedback(rt("unknown"));
       return;
     }
 
     setAnsweredWord(current.word.displayText);
     setCompletedReview(true);
     setAttempt("");
-    setFeedback(t("review.correctFeedback"));
+    setFeedback(rt("correctFeedback"));
     setSpeechFallback("");
   };
 
@@ -317,21 +320,21 @@ export default function ReviewPage() {
       callback();
     };
     setSpeechFallback("");
-    setFeedback(t("review.playing"));
+    setFeedback(rt("playing"));
     speakEnglishWord(current.word.word, undefined, {
       onStarted: () =>
         settle(() => {
           setSpeechFallback("");
-          setFeedback(t("review.played"));
+          setFeedback(rt("played"));
         }),
       onFailed: () =>
         settle(() => {
           if (current.word.phonetic) {
             setSpeechFallback(current.word.phonetic);
-            setFeedback(t("review.fallback"));
+            setFeedback(rt("fallback"));
           } else {
-            setSpeechFallback(t("review.noAudio"));
-            setFeedback(t("review.noAudioOrPhonetic"));
+            setSpeechFallback(rt("noAudio"));
+            setFeedback(rt("noAudioOrPhonetic"));
           }
         })
     });
@@ -353,33 +356,33 @@ export default function ReviewPage() {
             href="/"
             className="focus-ring inline-flex min-h-11 items-center rounded-lg border-2 border-ink bg-white px-4 py-2 text-sm font-black text-ink"
           >
-            {safeText(t("review.back"))}
+            {safeText(rt("back"))}
           </Link>
           <LanguageSwitcher />
         </div>
 
         <header className="mt-5 rounded-lg border-2 border-ink bg-white p-5 shadow-crisp">
           <p className="text-sm font-black uppercase text-coral">
-            {safeText(t("review.eyebrow"))}
+            {safeText(rt("eyebrow"))}
           </p>
           <h1 className="mt-1 text-3xl font-black text-ink">
-            {safeText(t("review.title"))}
+            {safeText(rt("title"))}
           </h1>
           <p className="mt-2 font-semibold text-ink/70">
-            {safeText(t("review.description"))}
+            {safeText(rt("description"))}
           </p>
         </header>
 
-        <section className="mt-5 grid grid-cols-2 gap-3" aria-label={safeText(t("review.progress"))}>
+        <section className="mt-5 grid grid-cols-2 gap-3" aria-label={safeText(rt("progress"))}>
           <div className="rounded-lg border-2 border-ink bg-paper p-4 shadow-crisp">
             <p className="text-xs font-black uppercase text-coral">
-              {safeText(t("review.remaining"))}
+              {safeText(rt("remaining"))}
             </p>
             <p className="mt-1 text-3xl font-black text-ink">{remainingCount}</p>
           </div>
           <div className="rounded-lg border-2 border-ink bg-paper p-4 shadow-crisp">
             <p className="text-xs font-black uppercase text-leaf">
-              {safeText(t("review.spelling"))}
+              {safeText(rt("spelling"))}
             </p>
             <p className="mt-1 text-3xl font-black text-ink">{spellingPracticeCount}</p>
           </div>
@@ -388,7 +391,7 @@ export default function ReviewPage() {
         {runtimeStatus === "ready" && quarantinedWordIds.length > 0 ? (
           <section className="mt-5 rounded-lg border-2 border-amber-800 bg-amber-50 p-4 text-amber-950 shadow-crisp" role="status">
             <p className="font-black">
-              {t("review.partialWarning", { count: quarantinedWordIds.length })}
+              {rt("partialWarning", { count: quarantinedWordIds.length })}
             </p>
             <button
               type="button"
@@ -398,7 +401,7 @@ export default function ReviewPage() {
               }}
               className="focus-ring mt-3 min-h-11 rounded-lg border-2 border-amber-900 bg-white px-4 py-2 text-sm font-black"
             >
-              {t("review.partialRetry")}
+              {rt("partialRetry")}
             </button>
           </section>
         ) : null}
@@ -409,13 +412,13 @@ export default function ReviewPage() {
             role="status"
           >
             <p className="font-black">
-              {t("review.restrictedSkipped", { count: restrictedReviewCount })}
+              {rt("restrictedSkipped", { count: restrictedReviewCount })}
             </p>
             <Link
               href="/parent"
               className="focus-ring mt-3 inline-flex min-h-11 items-center rounded-lg border-2 border-indigo-900 bg-white px-4 py-2 text-sm font-black"
             >
-              {t("review.reviewAccess")}
+              {rt("reviewAccess")}
             </Link>
           </section>
         ) : null}
@@ -426,14 +429,14 @@ export default function ReviewPage() {
             role="status"
           >
             <p className="font-black">
-              {t("review.recoverableSkipped", { count: recoverableReviewCount })}
+              {rt("recoverableSkipped", { count: recoverableReviewCount })}
             </p>
           </section>
         ) : null}
 
         {answeredWord ? (
           <section className="mt-5 rounded-lg border-2 border-emerald-800 bg-emerald-100 p-6 text-center shadow-crisp" aria-live="polite">
-            <p className="text-sm font-black text-emerald-900">{t("review.correct")}</p>
+            <p className="text-sm font-black text-emerald-900">{rt("correct")}</p>
             <p className="mt-2 text-4xl font-black tracking-wider text-emerald-950">
               {answeredWord}
             </p>
@@ -442,7 +445,7 @@ export default function ReviewPage() {
               onClick={nextClue}
               className="focus-ring mt-5 min-h-12 rounded-lg border-2 border-ink bg-mint px-6 py-3 font-black text-white shadow-crisp"
             >
-              {t("review.next")}
+              {rt("next")}
             </button>
           </section>
         ) : runtimeStatus === "loading" ? (
@@ -452,15 +455,15 @@ export default function ReviewPage() {
             aria-busy="true"
           >
             <LoaderCircle className="mx-auto h-8 w-8 animate-spin text-mint" aria-hidden="true" />
-            <p className="mt-3 font-black text-ink">{t("review.loading")}</p>
+            <p className="mt-3 font-black text-ink">{rt("loading")}</p>
           </section>
         ) : runtimeStatus === "error" ? (
           <section
             className="mt-5 rounded-lg border-2 border-coral bg-white p-6 text-center shadow-crisp"
             role="alert"
           >
-            <h2 className="text-2xl font-black text-ink">{t("review.loadErrorTitle")}</h2>
-            <p className="mt-2 font-semibold text-ink/70">{t("review.loadErrorDescription")}</p>
+            <h2 className="text-2xl font-black text-ink">{rt("loadErrorTitle")}</h2>
+            <p className="mt-2 font-semibold text-ink/70">{rt("loadErrorDescription")}</p>
             <button
               type="button"
               onClick={() => {
@@ -470,7 +473,7 @@ export default function ReviewPage() {
               className="focus-ring mt-5 inline-flex min-h-12 items-center gap-2 rounded-lg border-2 border-ink bg-coral px-5 py-3 font-black text-white shadow-crisp"
             >
               <RefreshCcw className="h-5 w-5" aria-hidden="true" />
-              {t("review.retry")}
+              {rt("retry")}
             </button>
           </section>
         ) : current ? (
@@ -483,7 +486,7 @@ export default function ReviewPage() {
                 <p className="mt-1 text-sm font-bold text-ink/70">
                   {safeText(
                     current.progress.reviewReasons?.includes("wrong")
-                      ? t("review.spelling")
+                      ? rt("spelling")
                       : t("game.meanings")
                   )}
                 </p>
@@ -495,7 +498,7 @@ export default function ReviewPage() {
 
             <div className="mt-5 rounded-lg border-2 border-ink/20 bg-white p-4">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-black text-ink/60">{t("review.meaning")}</p>
+                <p className="text-sm font-black text-ink/60">{rt("meaning")}</p>
                 <button
                   type="button"
                   disabled={isReadOnly}
@@ -521,7 +524,7 @@ export default function ReviewPage() {
                 </button>
               </div>
               <p className="mt-1 text-lg font-bold text-ink">
-                {safeText(cluePresentation?.text ?? t("review.guessSound"))}
+                {safeText(cluePresentation?.text ?? rt("guessSound"))}
               </p>
               {current.word.source ? (
                 <p className="mt-2 text-xs font-bold text-ink/55">
@@ -550,7 +553,7 @@ export default function ReviewPage() {
               onClick={playPronunciation}
               className="focus-ring mt-4 min-h-12 w-full rounded-lg border-2 border-ink bg-white px-5 py-3 font-black text-ink"
             >
-              {t("review.listen")}
+              {rt("listen")}
             </button>
             {speechFallback ? (
               <p className="mt-2 rounded-lg bg-white px-4 py-3 text-center font-bold text-ink" aria-live="polite">
@@ -560,7 +563,7 @@ export default function ReviewPage() {
 
             <form className="mt-4" onSubmit={submit}>
               <label htmlFor="review-answer" className="text-sm font-black text-ink">
-                {safeText(t("review.answerLabel"))}
+                {safeText(rt("answerLabel"))}
               </label>
               <input
                 id="review-answer"
@@ -571,7 +574,7 @@ export default function ReviewPage() {
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                placeholder={safeText(t("review.answerPlaceholder"))}
+                placeholder={safeText(rt("answerPlaceholder"))}
                 className="focus-ring mt-2 min-h-12 w-full rounded-lg border-2 border-ink bg-white px-4 py-3 text-lg font-black uppercase tracking-wider text-ink"
               />
               <button
@@ -579,7 +582,7 @@ export default function ReviewPage() {
                 disabled={isReadOnly || !attempt.trim()}
                 className="focus-ring mt-3 min-h-12 w-full rounded-lg border-2 border-ink bg-coral px-5 py-3 font-black text-white shadow-crisp disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {t("review.check")}
+                {rt("check")}
               </button>
             </form>
             <p className="mt-3 min-h-11 rounded-lg px-3 py-2 font-bold text-ink" aria-live="polite">
@@ -590,30 +593,30 @@ export default function ReviewPage() {
           <section className="mt-5 rounded-lg border-2 border-ink bg-white p-6 text-center shadow-crisp" aria-live="polite">
             <CircleCheck className="mx-auto h-10 w-10 text-leaf" aria-hidden="true" />
             <h2 className="mt-2 text-2xl font-black text-ink">
-              {completedReview ? t("review.completeTitle") : t("review.emptyTitle")}
+              {completedReview ? rt("completeTitle") : rt("emptyTitle")}
             </h2>
             <p className="mt-2 font-semibold text-ink/70">
               {completedReview
                 ? unavailableReviewCount > 0
-                  ? t("review.partialCompleteDescription", {
+                  ? rt("partialCompleteDescription", {
                       count: unavailableReviewCount
                     })
-                  : t("review.completeDescription")
+                  : rt("completeDescription")
                 : recoverableReviewCount > 0
-                  ? t("review.recoverableSkipped", {
+                  ? rt("recoverableSkipped", {
                       count: recoverableReviewCount
                     })
                   : restrictedReviewCount > 0
-                    ? t("review.restrictedSkipped", {
+                    ? rt("restrictedSkipped", {
                         count: restrictedReviewCount
                       })
-                    : t("review.emptyDescription")}
+                    : rt("emptyDescription")}
             </p>
             <Link
               href="/"
               className="focus-ring mt-5 inline-flex min-h-12 items-center rounded-lg border-2 border-ink bg-mint px-6 py-3 font-black text-white shadow-crisp"
             >
-              {t("review.back")}
+              {rt("back")}
             </Link>
           </section>
         )}

@@ -74,7 +74,7 @@ export default function SettingsPage() {
           <h2 className="text-sm font-black uppercase tracking-[0.12em] text-coral">
             {t("settings.familyLinks")}
           </h2>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <Link
               href="/parent"
               className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border-2 border-ink bg-white px-3 py-2 text-sm font-black text-ink"
@@ -92,6 +92,12 @@ export default function SettingsPage() {
               className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border-2 border-ink bg-white px-3 py-2 text-sm font-black text-ink"
             >
               {t("settings.openMap")}
+            </Link>
+            <Link
+              href="/tutorial"
+              className="focus-ring inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border-2 border-ink bg-sun px-3 py-2 text-sm font-black text-ink"
+            >
+              {t("settings.viewTutorial")}
             </Link>
           </div>
         </section>

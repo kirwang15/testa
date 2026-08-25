@@ -43,6 +43,24 @@ export type LearningPreferences = {
   interfaceMode: InterfaceMode;
 };
 
+export type TutorialPhase =
+  | "intro"
+  | "home"
+  | "course-map"
+  | "game-ui"
+  | "first-word-detail"
+  | "level-complete"
+  | "completed";
+
+export type TutorialProgress = {
+  version: 1;
+  status: "in-progress" | "completed";
+  phase: TutorialPhase;
+  tutorialLevelId: string;
+  firstWordDetailSeen: boolean;
+  collapsed: boolean;
+};
+
 export type ContentAccessLevel = ContentRating;
 
 export type PlayerProfile = {
@@ -53,6 +71,7 @@ export type PlayerProfile = {
   accent: "en-US" | "en-GB";
   createdAt: string;
   onboardingCompleted: boolean;
+  tutorialProgress: TutorialProgress;
   contentAccessLevel: ContentAccessLevel;
   contentAccessOverride: boolean;
 };
@@ -455,7 +474,7 @@ export type GameProgress = {
 };
 
 export type ProfiledGameProgress = {
-  storageVersion: 3;
+  storageVersion: 4;
   contentVersion: string;
   profiles: Record<string, PlayerProfile>;
   activeProfileId: string;

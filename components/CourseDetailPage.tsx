@@ -10,6 +10,7 @@ import {
 } from "@/lib/curriculum-index";
 import { useI18n } from "@/lib/use-i18n";
 import { selectActiveGameProgress, useGameStore } from "@/store/gameStore";
+import { buildLevelHref } from "@/lib/level-navigation";
 
 export function CourseDetailPage({ curriculumId }: { curriculumId: string }) {
   const { language, t } = useI18n();
@@ -70,7 +71,7 @@ export function CourseDetailPage({ curriculumId }: { curriculumId: string }) {
                     </h2>
                   </div>
                   <Link
-                    href={`/levels/${next.id}`}
+                    href={buildLevelHref(next.id, `/courses/${curriculumId}`)}
                     className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border-2 border-ink bg-sun px-4 text-sm font-black text-ink transition hover:-translate-y-0.5"
                   >
                     <Play className="h-4 w-4" aria-hidden="true" />
@@ -83,7 +84,7 @@ export function CourseDetailPage({ curriculumId }: { curriculumId: string }) {
                     return (
                       <Link
                         key={level.id}
-                        href={`/levels/${level.id}`}
+                        href={buildLevelHref(level.id, `/courses/${curriculumId}`)}
                         className={`focus-ring grid aspect-square min-h-10 place-items-center rounded-lg border-2 text-xs font-black transition hover:-translate-y-0.5 ${
                           completed
                             ? "border-ink bg-leaf text-white"

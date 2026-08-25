@@ -1,19 +1,19 @@
 "use client";
 
-import { Check, Delete, RotateCcw, X } from "lucide-react";
-import { useI18n } from "@/lib/use-i18n";
+import { Delete, X } from "lucide-react";
+import { useLevelI18n } from "@/lib/level-i18n";
 
 type LetterWheelProps = {
   letters: string[];
   selectedIndexes: number[];
   currentWord: string;
-  canSubmit?: boolean;
   disabled?: boolean;
+  readOnlyDetail?: boolean;
+  invalid?: boolean;
   isSubmitting?: boolean;
   onBackspace: () => void;
   onChoose: (index: number) => void;
   onClear: () => void;
-  onSubmit: () => void;
   sanitizeText?: (text: string) => string;
 };
 
@@ -21,30 +21,48 @@ export function LetterWheel({
   letters,
   selectedIndexes,
   currentWord,
-  canSubmit = false,
   disabled = false,
+  readOnlyDetail = false,
+  invalid = false,
   isSubmitting = false,
   onBackspace,
   onChoose,
   onClear,
-  onSubmit,
   sanitizeText = (text) => text
 }: LetterWheelProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   const radius = letters.length > 5 ? 61 : 55;
   const selectedCount = selectedIndexes.length;
   const selectedLetters = currentWord.split("");
   const canEdit = !disabled && !isSubmitting && selectedCount > 0;
-  const submitEnabled = !disabled && !isSubmitting && canSubmit;
 
   return (
-    <div className="relative mx-auto w-full max-w-[320px]">
+    <div
+      className={[
+        "relative mx-auto w-full max-w-[320px] rounded-2xl transition",
+        invalid ? "ring-4 ring-red-500/80" : "",
+        readOnlyDetail ? "opacity-55 saturate-50" : ""
+      ].join(" ")}
+      role="group"
+      aria-invalid={invalid || undefined}
+      aria-describedby="letter-wheel-state"
+      aria-label={sanitizeText(
+        readOnlyDetail
+          ? t("game.detailInputDisabled")
+          : invalid
+            ? t("game.wordNeedsCorrection")
+            : t("game.letterInput")
+      )}
+    >
       {selectedLetters.length > 0 ? (
         <div className="game-word-ribbon absolute left-1/2 top-[-3.1rem] z-20 min-h-11 w-[min(100%,300px)] -translate-x-1/2">
           {selectedLetters.map((letter, index) => (
             <span
               key={`${letter}-${index}`}
-              className="game-ribbon-letter animate-selected-pulse"
+              className={[
+                "game-ribbon-letter animate-selected-pulse",
+                invalid ? "border-red-200 bg-red-700 text-white" : ""
+              ].join(" ")}
             >
               {letter}
             </span>
@@ -72,7 +90,9 @@ export function LetterWheel({
               className={[
                 "game-letter-button focus-ring absolute left-1/2 top-1/2 grid h-11 w-11 place-items-center text-xl font-black transition disabled:cursor-not-allowed disabled:opacity-75 sm:h-12 sm:w-12 sm:text-2xl",
                 selected
-                  ? "z-10 scale-105 text-white ring-4 ring-amber-100/25"
+                  ? invalid
+                    ? "z-10 scale-105 bg-red-700 text-white ring-4 ring-red-300/40"
+                    : "z-10 scale-105 text-white ring-4 ring-amber-100/25"
                   : "text-[#210d06] hover:brightness-110"
               ].join(" ")}
               style={{
@@ -109,20 +129,26 @@ export function LetterWheel({
         >
           <Delete className="h-5 w-5" aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={!submitEnabled}
-          className="game-wheel-action game-wheel-action-submit focus-ring"
-          aria-label={sanitizeText(t("game.submitWord"))}
-        >
-          {isSubmitting ? (
-            <RotateCcw className="h-5 w-5 animate-spin" aria-hidden="true" />
-          ) : (
-            <Check className="h-5 w-5" aria-hidden="true" />
-          )}
-        </button>
       </div>
+      <p
+        id="letter-wheel-state"
+        role={invalid ? "alert" : "status"}
+        className={[
+          "mt-2 text-center text-[11px] font-black",
+          invalid ? "text-red-200" : "text-amber-100/70"
+        ].join(" ")}
+        aria-live="polite"
+      >
+        {sanitizeText(
+          readOnlyDetail
+            ? t("game.detailInputDisabled")
+            : invalid
+            ? t("game.wordNeedsCorrection")
+            : isSubmitting
+              ? t("game.autoChecking")
+              : t("game.autoCheckGuide")
+        )}
+      </p>
     </div>
   );
 }

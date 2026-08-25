@@ -78,8 +78,12 @@ class AssessmentStoppingRules {
     required this.maximumScoringItems,
     required this.wrapUpItems,
     required this.minimumMultipleChoiceItems,
+    required this.minimumBasicItems,
+    required this.minimumAdvancedItems,
+    required this.minimumTargetItems,
     required this.standardErrorThreshold,
     required this.relativeEstimateChangeThreshold,
+    required this.stableEstimateChanges,
     required this.informationThreshold,
   });
 
@@ -87,8 +91,12 @@ class AssessmentStoppingRules {
   final int maximumScoringItems;
   final int wrapUpItems;
   final int minimumMultipleChoiceItems;
+  final int minimumBasicItems;
+  final int minimumAdvancedItems;
+  final int minimumTargetItems;
   final double standardErrorThreshold;
   final double relativeEstimateChangeThreshold;
+  final int stableEstimateChanges;
   final double informationThreshold;
 
   factory AssessmentStoppingRules.fromJson(Map<String, dynamic> json) {
@@ -98,19 +106,27 @@ class AssessmentStoppingRules {
       wrapUpItems: (json['wrapUpItems'] as num).toInt(),
       minimumMultipleChoiceItems: (json['minimumMultipleChoiceItems'] as num)
           .toInt(),
+      minimumBasicItems: (json['minimumBasicItems'] as num).toInt(),
+      minimumAdvancedItems: (json['minimumAdvancedItems'] as num).toInt(),
+      minimumTargetItems: (json['minimumTargetItems'] as num).toInt(),
       standardErrorThreshold: (json['standardErrorThreshold'] as num)
           .toDouble(),
       relativeEstimateChangeThreshold:
           (json['relativeEstimateChangeThreshold'] as num).toDouble(),
+      stableEstimateChanges: (json['stableEstimateChanges'] as num).toInt(),
       informationThreshold: (json['informationThreshold'] as num).toDouble(),
     );
-    if (rules.minimumScoringItems != 24 ||
-        rules.maximumScoringItems != 38 ||
-        rules.wrapUpItems != 2 ||
-        rules.minimumMultipleChoiceItems != 6 ||
-        rules.standardErrorThreshold <= 0 ||
-        rules.relativeEstimateChangeThreshold <= 0 ||
-        rules.informationThreshold <= 0) {
+    if (rules.minimumScoringItems != 48 ||
+        rules.maximumScoringItems != 76 ||
+        rules.wrapUpItems != 4 ||
+        rules.minimumMultipleChoiceItems != 12 ||
+        rules.minimumBasicItems != 4 ||
+        rules.minimumAdvancedItems != 4 ||
+        rules.minimumTargetItems != 4 ||
+        rules.standardErrorThreshold != 0.32 ||
+        rules.relativeEstimateChangeThreshold != 0.03 ||
+        rules.stableEstimateChanges != 6 ||
+        rules.informationThreshold != 0.08) {
       throw const FormatException('Invalid assessment stopping rules');
     }
     return rules;
@@ -121,9 +137,79 @@ class AssessmentStoppingRules {
     'maximumScoringItems': maximumScoringItems,
     'wrapUpItems': wrapUpItems,
     'minimumMultipleChoiceItems': minimumMultipleChoiceItems,
+    'minimumBasicItems': minimumBasicItems,
+    'minimumAdvancedItems': minimumAdvancedItems,
+    'minimumTargetItems': minimumTargetItems,
     'standardErrorThreshold': standardErrorThreshold,
     'relativeEstimateChangeThreshold': relativeEstimateChangeThreshold,
+    'stableEstimateChanges': stableEstimateChanges,
     'informationThreshold': informationThreshold,
+  };
+}
+
+class AssessmentBroadPhaseRules {
+  const AssessmentBroadPhaseRules({
+    required this.totalItems,
+    required this.realItems,
+    required this.pseudowordItems,
+    required this.realBands,
+    required this.pseudowordSlots,
+    required this.pseudowordBands,
+  });
+
+  final int totalItems;
+  final int realItems;
+  final int pseudowordItems;
+  final List<int> realBands;
+  final List<int> pseudowordSlots;
+  final List<int> pseudowordBands;
+
+  factory AssessmentBroadPhaseRules.fromJson(Map<String, dynamic> json) {
+    final rules = AssessmentBroadPhaseRules(
+      totalItems: (json['totalItems'] as num).toInt(),
+      realItems: (json['realItems'] as num).toInt(),
+      pseudowordItems: (json['pseudowordItems'] as num).toInt(),
+      realBands: (json['realBands'] as List<dynamic>)
+          .map((value) => (value as num).toInt())
+          .toList(growable: false),
+      pseudowordSlots: (json['pseudowordSlots'] as List<dynamic>)
+          .map((value) => (value as num).toInt())
+          .toList(growable: false),
+      pseudowordBands: (json['pseudowordBands'] as List<dynamic>)
+          .map((value) => (value as num).toInt())
+          .toList(growable: false),
+    );
+    if (rules.totalItems != 20 ||
+        rules.realItems != 16 ||
+        rules.pseudowordItems != 4 ||
+        rules.realItems + rules.pseudowordItems != rules.totalItems ||
+        rules.realBands.length != rules.realItems ||
+        rules.pseudowordSlots.length != rules.pseudowordItems ||
+        rules.pseudowordBands.length != rules.pseudowordItems ||
+        rules.realBands.join(',') !=
+            '1,2,3,5,6,7,8,10,11,12,13,15,16,17,18,20' ||
+        rules.pseudowordSlots.join(',') != '3,8,13,18' ||
+        rules.pseudowordBands.join(',') != '4,9,14,19' ||
+        rules.pseudowordSlots.toSet().length != rules.pseudowordSlots.length ||
+        rules.pseudowordSlots.any(
+          (slot) => slot < 0 || slot >= rules.totalItems,
+        ) ||
+        <int>{
+          ...rules.realBands,
+          ...rules.pseudowordBands,
+        }.any((band) => band < 1 || band > 20)) {
+      throw const FormatException('Invalid assessment broad phase rules');
+    }
+    return rules;
+  }
+
+  Map<String, dynamic> toJson() => {
+    'totalItems': totalItems,
+    'realItems': realItems,
+    'pseudowordItems': pseudowordItems,
+    'realBands': realBands,
+    'pseudowordSlots': pseudowordSlots,
+    'pseudowordBands': pseudowordBands,
   };
 }
 
@@ -173,7 +259,7 @@ class AssessmentItem {
         json['itemType'],
         'assessment item type',
       ),
-      spelling: (json['spelling'] as String).toLowerCase(),
+      spelling: json['spelling'] as String,
       frequencyBand: (json['frequencyBand'] as num).toInt(),
       targetTags: (json['targetTags'] as List<dynamic>).cast<String>(),
       meaning: json['meaning'] as String,
@@ -247,6 +333,7 @@ class AssessmentItem {
 class AssessmentBank {
   const AssessmentBank({
     required this.schemaVersion,
+    required this.policyVersion,
     required this.bankVersion,
     required this.estimateMin,
     required this.estimateMax,
@@ -254,11 +341,13 @@ class AssessmentBank {
     required this.generatorVersion,
     required this.sourceHash,
     required this.anchors,
+    required this.broadPhaseRules,
     required this.stoppingRules,
     required this.items,
   });
 
   final int schemaVersion;
+  final int policyVersion;
   final String bankVersion;
   final int estimateMin;
   final int estimateMax;
@@ -266,6 +355,7 @@ class AssessmentBank {
   final String generatorVersion;
   final String sourceHash;
   final List<AssessmentAnchorProfile> anchors;
+  final AssessmentBroadPhaseRules broadPhaseRules;
   final AssessmentStoppingRules stoppingRules;
   final List<AssessmentItem> items;
 
@@ -287,6 +377,7 @@ class AssessmentBank {
     final range = json['estimateRange'] as Map<String, dynamic>;
     final bank = AssessmentBank(
       schemaVersion: (json['schemaVersion'] as num).toInt(),
+      policyVersion: (json['policyVersion'] as num).toInt(),
       bankVersion: json['bankVersion'] as String,
       estimateMin: (range['min'] as num).toInt(),
       estimateMax: (range['max'] as num).toInt(),
@@ -299,6 +390,9 @@ class AssessmentBank {
                 AssessmentAnchorProfile.fromJson(item as Map<String, dynamic>),
           )
           .toList(growable: false),
+      broadPhaseRules: AssessmentBroadPhaseRules.fromJson(
+        json['broadPhaseRules'] as Map<String, dynamic>,
+      ),
       stoppingRules: AssessmentStoppingRules.fromJson(
         json['stoppingRules'] as Map<String, dynamic>,
       ),
@@ -311,13 +405,15 @@ class AssessmentBank {
   }
 
   void _validate() {
-    if (schemaVersion != 1 ||
-        !bankVersion.startsWith('assessment-proxy-v1-') ||
+    if (schemaVersion != 2 ||
+        policyVersion != 2 ||
+        !bankVersion.startsWith('assessment-proxy-v2-') ||
         estimateMin != 0 ||
         estimateMax != 20000 ||
         calibrationStatus != 'proxy-v1' ||
-        generatorVersion.trim().isEmpty ||
+        generatorVersion != 'assessment-bank-generator-v2' ||
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(sourceHash) ||
+        bankVersion != 'assessment-proxy-v2-${sourceHash.substring(0, 16)}' ||
         anchors.length != AssessmentAnchor.values.length ||
         anchors.map((item) => item.anchor).toSet().length != anchors.length ||
         items.length != 1440 ||
@@ -343,12 +439,14 @@ class AssessmentBank {
 
   Map<String, dynamic> toJson() => {
     'schemaVersion': schemaVersion,
+    'policyVersion': policyVersion,
     'bankVersion': bankVersion,
     'estimateRange': {'min': estimateMin, 'max': estimateMax},
     'calibrationStatus': calibrationStatus,
     'generatorVersion': generatorVersion,
     'sourceHash': sourceHash,
     'anchorProfiles': anchors.map((item) => item.toJson()).toList(),
+    'broadPhaseRules': broadPhaseRules.toJson(),
     'stoppingRules': stoppingRules.toJson(),
     'items': items.map((item) => item.toJson()).toList(),
   };

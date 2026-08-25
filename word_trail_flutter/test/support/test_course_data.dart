@@ -165,6 +165,9 @@ CourseRepository testCourseRepository({
 }
 
 Map<String, dynamic> _levelBundle(_LevelSpec item, String rating) {
+  if (item.id == 'nce-1997-b3-level-001') {
+    return _crossedTwoWordBundle(item, rating);
+  }
   final wordId = '${item.curriculumId}-${item.word.toLowerCase()}';
   final source = item.curriculumId == 'nce-1997'
       ? {
@@ -215,6 +218,65 @@ Map<String, dynamic> _levelBundle(_LevelSpec item, String rating) {
         'cefrLevel': 'B1',
         'rating': rating,
       },
+    ],
+    'releaseStatus': 'automated-beta',
+    'rating': rating,
+  };
+}
+
+Map<String, dynamic> _crossedTwoWordBundle(_LevelSpec item, String rating) {
+  final source = {
+    'type': 'nce',
+    'book': 3,
+    'lesson': item.levelNumber,
+    'provenanceId': 'test-nce',
+  };
+  return {
+    'contentVersion': 'test-catalog-v1',
+    'level': {
+      'id': item.id,
+      'curriculumId': item.curriculumId,
+      'trackId': item.trackId,
+      'levelNumber': item.levelNumber,
+      'bookId': item.trackId,
+      'unitId': '${item.trackId}-u1',
+      'title': 'Two word test level',
+      'letters': ['S', 'U', 'N', 'U', 'T'],
+      'targetWords': [
+        {
+          'id': 'nce-1997-sun',
+          'word': 'SUN',
+          'englishMeaning': 'The star at the center of our solar system',
+          'chineseMeaning': '太阳',
+          'start': {'row': 0, 'col': 0},
+          'direction': 'across',
+          'source': source,
+        },
+        {
+          'id': 'nce-1997-nut',
+          'word': 'NUT',
+          'englishMeaning': 'A seed with a hard shell',
+          'chineseMeaning': '坚果',
+          'start': {'row': 0, 'col': 2},
+          'direction': 'down',
+          'source': source,
+        },
+      ],
+      'grid': {'rows': 3, 'cols': 3},
+      'rewardCoins': 20,
+      'perfectBonusCoins': 5,
+      'layoutRevision': 'test-layout-crossed',
+    },
+    'vocabulary': [
+      for (final word in ['sun', 'nut'])
+        {
+          'id': 'nce-1997-$word',
+          'phonetic': '/$word/',
+          'partOfSpeech': 'noun',
+          'examples': ['A test example for $word.'],
+          'cefrLevel': 'A1',
+          'rating': rating,
+        },
     ],
     'releaseStatus': 'automated-beta',
     'rating': rating,

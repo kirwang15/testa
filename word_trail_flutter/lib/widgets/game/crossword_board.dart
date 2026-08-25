@@ -14,6 +14,7 @@ class CrosswordBoard extends StatelessWidget {
     required this.solvedWordIds,
     required this.draftLetters,
     required this.activeWordId,
+    this.errorWordId,
     required this.onCellTap,
   });
 
@@ -22,7 +23,8 @@ class CrosswordBoard extends StatelessWidget {
   final Set<String> solvedWordIds;
   final Map<GridPoint, String> draftLetters;
   final String activeWordId;
-  final ValueChanged<GridPoint> onCellTap;
+  final String? errorWordId;
+  final ValueChanged<GridPoint>? onCellTap;
 
   @override
   Widget build(BuildContext context) {
@@ -86,8 +88,11 @@ class CrosswordBoard extends StatelessWidget {
                               number: numbers[GridPoint(row, col)],
                               solvedWordIds: solvedWordIds,
                               activeWordId: activeWordId,
+                              errorWordId: errorWordId,
                               draft: draftLetters[GridPoint(row, col)],
-                              onTap: () => onCellTap(GridPoint(row, col)),
+                              onTap: onCellTap == null
+                                  ? null
+                                  : () => onCellTap!(GridPoint(row, col)),
                             ),
                           ),
                   ],
@@ -110,6 +115,7 @@ class _Tile extends StatelessWidget {
     required this.number,
     required this.solvedWordIds,
     required this.activeWordId,
+    required this.errorWordId,
     required this.draft,
     required this.onTap,
   });
@@ -121,8 +127,9 @@ class _Tile extends StatelessWidget {
   final int? number;
   final Set<String> solvedWordIds;
   final String activeWordId;
+  final String? errorWordId;
   final String? draft;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -136,18 +143,22 @@ class _Tile extends StatelessWidget {
     final letter = fixedLetter ?? draft;
     final solved = fixedLetter != null;
     final active = words.any((word) => word.id == activeWordId);
+    final error = words.any((word) => word.id == errorWordId) && !solved;
     return Semantics(
       button: true,
-      label: letter == null
-          ? strings('semantics.emptyCell', {
-              'row': point.row + 1,
-              'col': point.col + 1,
-            })
-          : strings('semantics.letterCell', {
-              'letter': letter,
-              'row': point.row + 1,
-              'col': point.col + 1,
-            }),
+      enabled: onTap != null,
+      label:
+          (letter == null
+              ? strings('semantics.emptyCell', {
+                  'row': point.row + 1,
+                  'col': point.col + 1,
+                })
+              : strings('semantics.letterCell', {
+                  'letter': letter,
+                  'row': point.row + 1,
+                  'col': point.col + 1,
+                })) +
+          (error ? ', ${strings('semantics.incorrectCell')}' : ''),
       child: ExcludeSemantics(
         child: InkWell(
           onTap: onTap,
@@ -156,15 +167,19 @@ class _Tile extends StatelessWidget {
             decoration: BoxDecoration(
               color: solved
                   ? const Color(0xFFE3F4E8)
+                  : error
+                  ? const Color(0xFFFFDAD6)
                   : letter != null
                   ? const Color(0xFFD8F1FD)
                   : const Color(0xFFF7F2E9),
               borderRadius: BorderRadius.circular(math.max(7, size * 0.18)),
               border: Border.all(
-                color: active
+                color: error
+                    ? const Color(0xFFD32F2F)
+                    : active
                     ? const Color(0xFF48BDEB)
                     : const Color(0xFFD7C9B6),
-                width: active ? 2.5 : 1,
+                width: error || active ? 2.5 : 1,
               ),
               boxShadow: const [
                 BoxShadow(
@@ -193,7 +208,9 @@ class _Tile extends StatelessWidget {
                   child: Text(
                     letter ?? '',
                     style: TextStyle(
-                      color: const Color(0xFF21130E),
+                      color: error
+                          ? const Color(0xFF8C1D18)
+                          : const Color(0xFF21130E),
                       fontSize: math.max(18, size * 0.54),
                       height: 1,
                       fontWeight: FontWeight.w900,

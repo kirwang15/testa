@@ -27,11 +27,33 @@ describe("hydration-safe learner onboarding", () => {
         uiLanguage: "zh-CN",
         clueLanguage: "en"
       },
-      onboardingCompleted: true
+      onboardingCompleted: true,
+      tutorialProgress: {
+        version: 1,
+        status: "in-progress",
+        phase: "home",
+        tutorialLevelId: "nce-1997-b1-level-001",
+        firstWordDetailSeen: false,
+        collapsed: false
+      }
     });
     assert.equal(immersion.preferences?.uiLanguage, "en");
     assert.equal(immersion.preferences?.clueLanguage, "en");
     assert.equal(immersion.onboardingCompleted, true);
+  });
+
+  test("does not restart the tutorial when an existing learner edits settings", () => {
+    const patch = getOnboardingProfilePatch(
+      {
+        nickname: "Returning",
+        ageBand: "13-15",
+        interfaceMode: "immersion"
+      },
+      true
+    );
+
+    assert.equal("tutorialProgress" in patch, false);
+    assert.equal(patch.onboardingCompleted, true);
   });
 
   test("recommends low-pressure guided UI for younger learners and immersion for teens", () => {

@@ -20,6 +20,19 @@ function restoreStore(state: ProfiledGameProgress) {
 }
 
 describe("profile action store boundary", () => {
+  test("an already-onboarded profile created in settings starts the tutorial at home", () => {
+    restoreStore(createInitialProfiledGameProgress());
+    const profileId = useGameStore.getState().addProfile({
+      nickname: "New learner",
+      ageBand: "10-12",
+      onboardingCompleted: true
+    });
+    assert.ok(profileId);
+    const profile = useGameStore.getState().profiles[profileId];
+    assert.equal(profile?.onboardingCompleted, true);
+    assert.equal(profile?.tutorialProgress.phase, "home");
+  });
+
   test("unsupported future saves make every persisted store mutation a no-op", () => {
     const initial = createInitialProfiledGameProgress();
     const withSecond = addPlayerProfile(

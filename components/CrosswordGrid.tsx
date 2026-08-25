@@ -1,7 +1,7 @@
 "use client";
 
 import { buildGrid, getCellKey, isCellVisible } from "@/lib/game";
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
 import type { CellKey, Level, LevelProgress } from "@/types/game";
 
 type CrosswordGridProps = {
@@ -12,6 +12,7 @@ type CrosswordGridProps = {
   draftLetters?: Partial<Record<CellKey, string>>;
   recentHintCellKey?: CellKey;
   recentWordId?: string;
+  invalidWordId?: string;
   sanitizeText?: (text: string) => string;
 };
 
@@ -23,9 +24,10 @@ export function CrosswordGrid({
   draftLetters = {},
   recentHintCellKey,
   recentWordId,
+  invalidWordId,
   sanitizeText = (text) => text
 }: CrosswordGridProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   const grid = buildGrid(level);
   const safeTitle = sanitizeText(title);
   const boardWidth = Math.max(132, level.grid.cols * 48);
@@ -76,6 +78,9 @@ export function CrosswordGrid({
               : false;
             const recentlyHinted = recentHintCellKey === key;
             const draftLetter = visible ? undefined : draftLetters[key];
+            const invalidDraft = Boolean(
+              draftLetter && invalidWordId && cell.wordIds.includes(invalidWordId)
+            );
             const displayedLetter = visible ? cell.letter : draftLetter;
 
             return (
@@ -105,7 +110,9 @@ export function CrosswordGrid({
                     : visible
                       ? "game-grid-tile game-grid-tile-visible"
                       : draftLetter
-                        ? "game-grid-tile game-grid-tile-draft"
+                      ? invalidDraft
+                        ? "game-grid-tile border-red-200 bg-red-700 text-white ring-2 ring-red-300/35"
+                        : "game-grid-tile game-grid-tile-draft"
                       : "game-grid-slot text-transparent",
                   hinted ? "game-grid-tile-hinted" : "",
                   belongsToActiveWord ? "game-grid-tile-active" : "",

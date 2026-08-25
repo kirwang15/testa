@@ -50,6 +50,66 @@ void main() {
     expect(AgeBandValue.parse('13-15'), AgeBand.thirteenToFifteen);
   });
 
+  test('unknown tutorial versions and phases never force existing users', () {
+    expect(
+      TutorialProgress.fromJson({
+        'version': 999,
+        'phase': 'home',
+        'levelId': TutorialProgress.defaultLevelId,
+      }).isCompleted,
+      isTrue,
+    );
+    expect(
+      TutorialProgress.fromJson({
+        'version': TutorialProgress.currentVersion,
+        'phase': 'futurePhase',
+        'levelId': TutorialProgress.defaultLevelId,
+      }).isCompleted,
+      isTrue,
+    );
+  });
+
+  test(
+    'unknown tutorial data normalizes the legacy seen flag safely',
+    () async {
+      final store = MemoryStore(
+        jsonEncode({
+          'storageVersion': 6,
+          'contentVersion': 'test-catalog-v1',
+          'activeProfileId': 'profile-corrupt-tutorial',
+          'profiles': {
+            'profile-corrupt-tutorial': {
+              'id': 'profile-corrupt-tutorial',
+              'nickname': 'Existing learner',
+              'ageBand': '3+',
+              'uiLanguage': 'zh-CN',
+              'clueLanguage': 'en',
+              'createdAt': DateTime.utc(2026, 8, 2).toIso8601String(),
+              'hasSeenGettingStarted': false,
+              'tutorialProgress': {
+                'version': 999,
+                'phase': 'home',
+                'levelId': TutorialProgress.defaultLevelId,
+              },
+              'coins': 39,
+              'levels': {},
+              'review': {},
+              'activeDates': [],
+            },
+          },
+        }),
+      );
+      final controller = testController(store);
+
+      await controller.initialize();
+
+      expect(controller.hasActiveTutorial, isFalse);
+      expect(controller.needsGettingStarted, isFalse);
+      expect(controller.activeProfile!.hasSeenGettingStarted, isTrue);
+      expect(controller.activeProfile!.coins, 39);
+    },
+  );
+
   test('recovers from malformed local save without a blank screen', () async {
     final controller = testController(MemoryStore('{broken'));
     await controller.initialize();
@@ -69,7 +129,7 @@ void main() {
   });
 
   test(
-    'v3 migrates to v5 without losing progress, review, coins or age',
+    'v3 migrates to v6 without losing progress, review, coins or age',
     () async {
       final dueAt = DateTime.utc(2026, 8, 1).toIso8601String();
       final raw = jsonEncode({
@@ -121,6 +181,7 @@ void main() {
       expect(profile.coins, 88);
       expect(profile.ageBand, AgeBand.tenToTwelve);
       expect(profile.hasSeenGettingStarted, isTrue);
+      expect(profile.tutorialProgress.isCompleted, isTrue);
       expect(controller.needsGettingStarted, isFalse);
       expect(profile.levels['nce-1997-b1-level-001']!.bestStars, 3);
       expect(
@@ -128,12 +189,12 @@ void main() {
         dueAt,
       );
       expect(profile.activeDates, {'2026-07-31'});
-      expect(jsonDecode(store.value!)['storageVersion'], 5);
+      expect(jsonDecode(store.value!)['storageVersion'], 6);
       expect(jsonDecode(store.value!)['contentVersion'], 'test-catalog-v1');
     },
   );
 
-  test('v4 migrates to v5 with assessment fields empty', () async {
+  test('v4 migrates to v6 with assessment fields empty', () async {
     final store = MemoryStore(
       jsonEncode({
         'storageVersion': 4,
@@ -165,8 +226,166 @@ void main() {
     expect(controller.activeProfile!.coins, 77);
     expect(controller.activeAssessmentSession, isNull);
     expect(controller.assessmentHistory, isEmpty);
-    expect(jsonDecode(store.value!)['storageVersion'], 5);
+    expect(controller.activeProfile!.tutorialProgress.isCompleted, isTrue);
+    expect(jsonDecode(store.value!)['storageVersion'], 6);
   });
+
+  test('v5 migrates to v6 with existing users tutorial-complete', () async {
+    final dueAt = DateTime.utc(2026, 8, 20).toIso8601String();
+    final historicalAssessment = AssessmentSession(
+      selectedAnchor: AssessmentAnchor.kaoyan,
+      bankVersion: 'legacy-bank-v1',
+      phase: AssessmentPhase.complete,
+      responses: const <AssessmentResponse>[],
+      usedItemIds: const <String>{},
+      theta: 0.25,
+      standardError: 0.4,
+      estimate: 6800,
+      estimateLower: 5900,
+      estimateUpper: 7700,
+      reliability: AssessmentReliability.good,
+      estimateHistory: const <int>[6600, 6800],
+      startedAt: DateTime.utc(2026, 8, 2),
+      durationMs: 240000,
+    );
+    final store = MemoryStore(
+      jsonEncode({
+        'storageVersion': 5,
+        'contentVersion': 'legacy-v5',
+        'activeProfileId': 'profile-v5',
+        'profiles': {
+          'profile-v5': {
+            'id': 'profile-v5',
+            'nickname': 'Existing learner',
+            'ageBand': '3+',
+            'uiLanguage': 'zh-CN',
+            'clueLanguage': 'en',
+            'createdAt': DateTime.utc(2026, 8, 2).toIso8601String(),
+            'activeCurriculumId': 'ielts-nawl-v1',
+            'hasSeenGettingStarted': true,
+            'favoriteWordIds': ['ielts-nawl-v1-data'],
+            'coins': 91,
+            'levels': {
+              'ielts-nawl-v1-level-001': {
+                'solvedWordIds': ['ielts-nawl-v1-data'],
+                'completed': true,
+                'rewardClaimed': true,
+                'bestStars': 2,
+                'attemptCount': 3,
+                'wrongAttempts': 1,
+                'hintCount': 0,
+                'firstTryCorrect': 0,
+              },
+            },
+            'review': {
+              'ielts-nawl-v1-data': {
+                'wordId': 'ielts-nawl-v1-data',
+                'levelId': 'ielts-nawl-v1-level-001',
+                'dueAt': dueAt,
+                'wrongCount': 1,
+                'hintCount': 0,
+              },
+            },
+            'activeDates': ['2026-08-02'],
+            'assessmentHistory': [historicalAssessment.toJson()],
+          },
+        },
+      }),
+    );
+    final controller = testController(store);
+
+    await controller.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.activeProfile!.coins, 91);
+    expect(controller.activeProfile!.activeCurriculumId, 'ielts-nawl-v1');
+    expect(controller.activeProfile!.tutorialProgress.isCompleted, isTrue);
+    expect(controller.activeProfile!.favoriteWordIds, {'ielts-nawl-v1-data'});
+    expect(controller.progressFor('ielts-nawl-v1-level-001').solvedWordIds, {
+      'ielts-nawl-v1-data',
+    });
+    expect(controller.progressFor('ielts-nawl-v1-level-001').bestStars, 2);
+    expect(
+      controller.activeProfile!.review['ielts-nawl-v1-data']!.dueAt
+          .toUtc()
+          .toIso8601String(),
+      dueAt,
+    );
+    expect(controller.assessmentHistory.single.bankVersion, 'legacy-bank-v1');
+    expect(controller.assessmentHistory.single.estimate, 6800);
+    expect(jsonDecode(store.value!)['storageVersion'], 6);
+  });
+
+  test(
+    'unfinished tutorial resumes from the persisted interaction phase',
+    () async {
+      final store = MemoryStore();
+      final controller = testController(store);
+      await controller.initialize();
+      controller.createProfile(
+        nickname: 'Resume tutorial',
+        ageBand: AgeBand.allAges,
+        uiLanguage: UiLanguage.chinese,
+      );
+      controller.beginTutorial();
+      controller.setTutorialPhase(TutorialPhase.courseMap);
+      controller.setTutorialPhase(TutorialPhase.gameUi);
+      await Future<void>.delayed(Duration.zero);
+
+      final restored = testController(store);
+      await restored.initialize();
+
+      expect(restored.hasActiveTutorial, isTrue);
+      expect(restored.tutorialProgress!.phase, TutorialPhase.gameUi);
+      expect(
+        restored.tutorialProgress!.levelId,
+        TutorialProgress.defaultLevelId,
+      );
+    },
+  );
+
+  test(
+    'unknown tutorial level ids recover to the guided first level',
+    () async {
+      final store = MemoryStore(
+        jsonEncode({
+          'storageVersion': 6,
+          'contentVersion': 'test-catalog-v1',
+          'activeProfileId': 'profile-tutorial',
+          'profiles': {
+            'profile-tutorial': {
+              'id': 'profile-tutorial',
+              'nickname': 'Recovered tutorial',
+              'ageBand': '3+',
+              'uiLanguage': 'zh-CN',
+              'clueLanguage': 'en',
+              'createdAt': DateTime.utc(2026, 8, 2).toIso8601String(),
+              'activeCurriculumId': 'nce-1997',
+              'hasSeenGettingStarted': false,
+              'tutorialProgress': {
+                'version': TutorialProgress.currentVersion,
+                'phase': 'home',
+                'levelId': 'missing-level',
+              },
+              'coins': 0,
+              'levels': {},
+              'review': {},
+              'activeDates': [],
+            },
+          },
+        }),
+      );
+      final controller = testController(store);
+
+      await controller.initialize();
+
+      expect(controller.hasActiveTutorial, isTrue);
+      expect(
+        controller.tutorialProgress!.levelId,
+        TutorialProgress.defaultLevelId,
+      );
+    },
+  );
 
   test(
     'assessment can pause, resume, complete and retain ten results',
@@ -257,7 +476,94 @@ void main() {
     },
   );
 
-  test('new profiles see the guide once and completion is persisted', () async {
+  test(
+    'bank mismatch is persisted immediately and stays discarded after two restarts',
+    () async {
+      final incompatibleSession = AssessmentSession(
+        selectedAnchor: AssessmentAnchor.unrestricted,
+        bankVersion: 'assessment-proxy-v1-obsolete',
+        phase: AssessmentPhase.adaptive,
+        responses: const <AssessmentResponse>[],
+        usedItemIds: const <String>{},
+        theta: 0,
+        standardError: 1,
+        estimate: 10000,
+        estimateLower: 1000,
+        estimateUpper: 19000,
+        reliability: AssessmentReliability.good,
+        estimateHistory: const <int>[10000],
+        startedAt: DateTime.utc(2026, 8, 20),
+        durationMs: 1000,
+      );
+      final historicalSession = AssessmentSession(
+        selectedAnchor: AssessmentAnchor.ielts,
+        bankVersion: 'assessment-proxy-v1-history',
+        phase: AssessmentPhase.complete,
+        responses: const <AssessmentResponse>[],
+        usedItemIds: const <String>{},
+        theta: -0.2,
+        standardError: 0.4,
+        estimate: 9000,
+        estimateLower: 7800,
+        estimateUpper: 10200,
+        reliability: AssessmentReliability.good,
+        estimateHistory: const <int>[9000],
+        startedAt: DateTime.utc(2026, 8, 19),
+        durationMs: 420000,
+      );
+      final store = MemoryStore(
+        jsonEncode({
+          'storageVersion': 6,
+          'contentVersion': 'test-catalog-v1',
+          'activeProfileId': 'profile-mismatch',
+          'profiles': {
+            'profile-mismatch': {
+              'id': 'profile-mismatch',
+              'nickname': 'Bank mismatch',
+              'ageBand': '3+',
+              'uiLanguage': 'zh-CN',
+              'clueLanguage': 'en',
+              'createdAt': DateTime.utc(2026, 8, 18).toIso8601String(),
+              'activeCurriculumId': 'nce-1997',
+              'hasSeenGettingStarted': true,
+              'coins': 23,
+              'levels': {},
+              'review': {},
+              'activeDates': const <String>[],
+              'activeAssessmentSession': incompatibleSession.toJson(),
+              'assessmentHistory': [historicalSession.toJson()],
+            },
+          },
+        }),
+      );
+
+      final firstRestart = testController(store);
+      await firstRestart.initialize();
+      expect(firstRestart.activeAssessmentSession, isNull);
+      expect(
+        firstRestart.assessmentHistory.single.bankVersion,
+        'assessment-proxy-v1-history',
+      );
+      final persistedAfterDiscard =
+          jsonDecode(store.value!) as Map<String, dynamic>;
+      final persistedProfile =
+          (persistedAfterDiscard['profiles']
+                  as Map<String, dynamic>)['profile-mismatch']
+              as Map<String, dynamic>;
+      expect(persistedProfile['activeAssessmentSession'], isNull);
+
+      final secondRestart = testController(store);
+      await secondRestart.initialize();
+      expect(secondRestart.activeAssessmentSession, isNull);
+      expect(
+        secondRestart.assessmentHistory.single.bankVersion,
+        'assessment-proxy-v1-history',
+      );
+      expect(secondRestart.activeProfile!.coins, 23);
+    },
+  );
+
+  test('new profiles persist the required contextual tutorial', () async {
     final store = MemoryStore();
     final controller = testController(store);
     await controller.initialize();
@@ -271,14 +577,28 @@ void main() {
     expect(controller.needsGettingStarted, isTrue);
     expect(controller.activeProfile!.hasSeenGettingStarted, isFalse);
 
-    controller.completeGettingStarted();
+    controller.beginTutorial();
     await Future<void>.delayed(Duration.zero);
 
     expect(controller.needsGettingStarted, isFalse);
+    expect(controller.hasActiveTutorial, isTrue);
+    expect(
+      controller.activeProfile!.tutorialProgress.phase,
+      TutorialPhase.home,
+    );
+    controller.setTutorialPhase(TutorialPhase.courseMap);
+    controller.setTutorialPhase(TutorialPhase.gameUi);
+    controller.setTutorialPhase(TutorialPhase.firstWordDetail);
+    controller.setTutorialPhase(TutorialPhase.levelComplete);
+    controller.setTutorialPhase(TutorialPhase.completed);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.hasActiveTutorial, isFalse);
     expect(controller.activeProfile!.hasSeenGettingStarted, isTrue);
     final saved = jsonDecode(store.value!) as Map<String, dynamic>;
     final profile = (saved['profiles'] as Map<String, dynamic>).values.single;
     expect(profile['hasSeenGettingStarted'], isTrue);
+    expect(profile['tutorialProgress']['phase'], 'completed');
   });
 
   test(

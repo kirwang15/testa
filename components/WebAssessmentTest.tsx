@@ -7,6 +7,7 @@ import {
   loadAssessmentBank,
   loadAssessmentState,
   nextAssessmentQuestion,
+  reconcileAssessmentState,
   saveAssessmentState,
   submitAssessmentAnswer,
   type AssessmentBank,
@@ -26,18 +27,16 @@ export function WebAssessmentTest() {
   const [showPause, setShowPause] = useState(false);
   const [slow, setSlow] = useState(false);
   const [locked, setLocked] = useState(false);
-  const [feedback, setFeedback] = useState<{
-    correct: boolean;
-    selected: boolean | number;
-    correctAnswer: string;
-  }>();
+  const [showCarefulWarning, setShowCarefulWarning] = useState(false);
   const startedQuestionAt = useRef(Date.now());
   const submitting = useRef(false);
-  const feedbackTimer = useRef<number | undefined>(undefined);
+  const transitionTimer = useRef<number | undefined>(undefined);
+  const carefulTimer = useRef<number | undefined>(undefined);
 
   useEffect(
     () => () => {
-      if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+      if (transitionTimer.current) window.clearTimeout(transitionTimer.current);
+      if (carefulTimer.current) window.clearTimeout(carefulTimer.current);
     },
     []
   );
@@ -46,8 +45,13 @@ export function WebAssessmentTest() {
     const controller = new AbortController();
     loadAssessmentBank(controller.signal)
       .then((loaded) => {
-        const active = loadAssessmentState(profile.id).active;
+        const stored = loadAssessmentState(profile.id);
+        const reconciled = reconcileAssessmentState(stored, loaded.bankVersion);
+        const active = reconciled.active;
         if (!active || active.bankVersion !== loaded.bankVersion) {
+          if (stored.active) {
+            saveAssessmentState(profile.id, reconciled);
+          }
           router.replace("/assessment");
           return;
         }
@@ -67,7 +71,6 @@ export function WebAssessmentTest() {
   useEffect(() => {
     startedQuestionAt.current = Date.now();
     submitting.current = false;
-    setFeedback(undefined);
     setSlow(false);
     const timer = window.setTimeout(() => setSlow(true), 30_000);
     return () => window.clearTimeout(timer);
@@ -84,6 +87,7 @@ export function WebAssessmentTest() {
       ...input,
       responseTimeMs: Date.now() - startedQuestionAt.current
     });
+    setLocked(true);
     const advance = () => {
       const stored = loadAssessmentState(profile.id);
       if (step.session.phase === "complete") {
@@ -98,55 +102,18 @@ export function WebAssessmentTest() {
         });
         setSession(step.session);
         if (step.showCarefulWarning) {
-          setLocked(true);
-          window.setTimeout(() => setLocked(false), 2_000);
+          setShowCarefulWarning(true);
+          carefulTimer.current = window.setTimeout(() => {
+            setLocked(false);
+            setShowCarefulWarning(false);
+          }, 2_000);
+        } else {
+          setLocked(false);
+          setShowCarefulWarning(false);
         }
       }
     };
-    if (input.skipped) {
-      advance();
-      return;
-    }
-    const response = step.session.responses.at(-1)!;
-    const correctAnswer = question.type === "yesNo"
-      ? t(question.item.itemType === "pseudoword" ? "no" : "yes")
-      : question.item.options[question.item.correctOptionIndex];
-    setFeedback({
-      correct: response.correct,
-      selected: question.type === "yesNo"
-        ? input.recognized === true
-        : input.selectedOptionIndex ?? -1,
-      correctAnswer
-    });
-    feedbackTimer.current = window.setTimeout(() => {
-      advance();
-    }, 850);
-  };
-
-  const yesNoClass = (recognized: boolean, base: string) => {
-    if (!feedback) return base;
-    const isCorrectAnswer = recognized === (question!.item.itemType === "realWord");
-    if (isCorrectAnswer) {
-      return `${base} border-emerald-700 bg-emerald-600 text-white ring-4 ring-emerald-200`;
-    }
-    if (feedback.selected === recognized) {
-      return `${base} border-red-700 bg-red-600 text-white ring-4 ring-red-200`;
-    }
-    return `${base} opacity-45`;
-  };
-
-  const choiceClass = (index: number) => {
-    const base = "focus-ring min-h-16 rounded-xl border-2 px-4 text-left text-sm font-black transition";
-    if (!feedback) {
-      return `${base} border-ink bg-paper text-ink hover:-translate-y-0.5 hover:bg-sun`;
-    }
-    if (index === question!.item.correctOptionIndex) {
-      return `${base} border-emerald-700 bg-emerald-600 text-white ring-4 ring-emerald-200`;
-    }
-    if (feedback.selected === index) {
-      return `${base} border-red-700 bg-red-600 text-white ring-4 ring-red-200`;
-    }
-    return `${base} border-ink/20 bg-paper text-ink opacity-45`;
+    transitionTimer.current = window.setTimeout(advance, 160);
   };
 
   if (status !== "ready" || !question || !session) {
@@ -160,9 +127,9 @@ export function WebAssessmentTest() {
   }
 
   const progress =
-    session.responses.length < 10
+    session.responses.length < 20
       ? { width: "18%", label: t("progressStart") }
-      : session.responses.length < 22
+      : session.responses.length < 48
         ? { width: "55%", label: t("progressMiddle") }
         : { width: "90%", label: t("progressEnd") };
 
@@ -177,7 +144,7 @@ export function WebAssessmentTest() {
             </div>
             <button
               type="button"
-              disabled={submitting.current}
+              disabled={locked}
               onClick={() => setShowPause(true)}
               className="focus-ring grid h-11 w-11 place-items-center rounded-full border border-white/30 bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
               aria-label={t("pause")}
@@ -198,22 +165,7 @@ export function WebAssessmentTest() {
             {question.item.spelling.toLocaleLowerCase("en")}
           </h1>
 
-          {feedback ? (
-            <p
-              className={`mt-6 rounded-lg border-2 px-4 py-3 text-center text-sm font-black ${
-                feedback.correct
-                  ? "border-emerald-700 bg-emerald-50 text-emerald-800"
-                  : "border-red-700 bg-red-50 text-red-800"
-              }`}
-              aria-live="assertive"
-            >
-              {feedback.correct
-                ? t("correct")
-                : t("wrong", { answer: feedback.correctAnswer })}
-            </p>
-          ) : null}
-
-          {locked ? (
+          {showCarefulWarning ? (
             <p className="mt-6 rounded-lg border-2 border-coral bg-red-50 px-4 py-3 text-center text-sm font-black text-coral" aria-live="assertive">
               {t("careful")}
             </p>
@@ -223,17 +175,17 @@ export function WebAssessmentTest() {
             <div className="mt-8 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                disabled={locked || submitting.current}
+                disabled={locked}
                 onClick={() => answer({ recognized: false })}
-                className={yesNoClass(false, "focus-ring min-h-16 rounded-xl border-2 border-ink bg-paper px-4 text-lg font-black text-ink")}
+                className="focus-ring min-h-16 rounded-xl border-2 border-ink bg-paper px-4 text-lg font-black text-ink transition hover:-translate-y-0.5 hover:bg-white disabled:opacity-45"
               >
                 {t("no")}
               </button>
               <button
                 type="button"
-                disabled={locked || submitting.current}
+                disabled={locked}
                 onClick={() => answer({ recognized: true })}
-                className={yesNoClass(true, "focus-ring min-h-16 rounded-xl border-2 border-ink bg-mint px-4 text-lg font-black text-white")}
+                className="focus-ring min-h-16 rounded-xl border-2 border-ink bg-mint px-4 text-lg font-black text-white transition hover:-translate-y-0.5 disabled:opacity-45"
               >
                 {t("yes")}
               </button>
@@ -244,9 +196,9 @@ export function WebAssessmentTest() {
                 <button
                   key={`${question.item.itemId}-${option}`}
                   type="button"
-                  disabled={locked || submitting.current}
+                  disabled={locked}
                   onClick={() => answer({ selectedOptionIndex: index })}
-                  className={choiceClass(index)}
+                  className="focus-ring min-h-16 rounded-xl border-2 border-ink bg-paper px-4 text-left text-sm font-black text-ink transition hover:-translate-y-0.5 hover:bg-sun disabled:opacity-45"
                 >
                   <span className="mr-2 text-coral">{String.fromCharCode(65 + index)}</span>
                   {option}
@@ -262,7 +214,7 @@ export function WebAssessmentTest() {
             </p>
             <button
               type="button"
-              disabled={locked || submitting.current}
+              disabled={locked}
               onClick={() => answer({ skipped: true })}
               className="focus-ring min-h-11 flex-none rounded-lg border-2 border-ink px-3 text-xs font-black text-ink disabled:opacity-40"
             >

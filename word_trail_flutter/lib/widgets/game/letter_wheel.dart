@@ -14,7 +14,7 @@ class LetterWheel extends StatelessWidget {
   });
 
   final List<String> letters;
-  final ValueChanged<String> onLetter;
+  final ValueChanged<String>? onLetter;
   final AppStrings strings;
 
   @override
@@ -73,6 +73,7 @@ class LetterWheel extends StatelessWidget {
               height: buttonSize,
               child: Semantics(
                 button: true,
+                enabled: onLetter != null,
                 label: strings('semantics.letterButton', {
                   'letter': letters[index],
                 }),
@@ -83,7 +84,9 @@ class LetterWheel extends StatelessWidget {
                     elevation: 4,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(13),
-                      onTap: () => onLetter(letters[index]),
+                      onTap: onLetter == null
+                          ? null
+                          : () => onLetter!(letters[index]),
                       child: Center(
                         child: Text(
                           letters[index],

@@ -102,6 +102,7 @@ export function UnitLevelsPage({ book, unit, levels }: UnitLevelsPageProps) {
                 activeProfile
               )}
               locked={!canAccessLevel(activeProfile, level)}
+              returnTo={`/books/${book.id}/units/${unit.id}`}
               progress={savedLevels[level.id] ?? createEmptyLevelProgress()}
             />
           ))}

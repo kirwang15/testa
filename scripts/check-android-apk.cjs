@@ -194,14 +194,29 @@ const pseudowordAssessmentItems = assessmentItems.filter(
   (item) => item.itemType === "pseudoword"
 );
 if (
-  assessmentBank.schemaVersion !== 1 ||
+  assessmentBank.schemaVersion !== 2 ||
+  assessmentBank.policyVersion !== 2 ||
   typeof assessmentBank.bankVersion !== "string" ||
-  !assessmentBank.bankVersion.startsWith("assessment-proxy-v1-") ||
+  !assessmentBank.bankVersion.startsWith("assessment-proxy-v2-") ||
   assessmentBank.bankVersion !== expectedAssessmentBank.bankVersion ||
   assessmentBank.sourceHash !== expectedAssessmentBank.sourceHash ||
   assessmentBank.calibrationStatus !== "proxy-v1" ||
   assessmentBank.estimateRange?.min !== 0 ||
   assessmentBank.estimateRange?.max !== 20000 ||
+  assessmentBank.broadPhaseRules?.totalItems !== 20 ||
+  assessmentBank.broadPhaseRules?.realItems !== 16 ||
+  assessmentBank.broadPhaseRules?.pseudowordItems !== 4 ||
+  assessmentBank.stoppingRules?.minimumScoringItems !== 48 ||
+  assessmentBank.stoppingRules?.maximumScoringItems !== 76 ||
+  assessmentBank.stoppingRules?.wrapUpItems !== 4 ||
+  assessmentBank.stoppingRules?.minimumMultipleChoiceItems !== 12 ||
+  assessmentBank.stoppingRules?.minimumBasicItems !== 4 ||
+  assessmentBank.stoppingRules?.minimumAdvancedItems !== 4 ||
+  assessmentBank.stoppingRules?.minimumTargetItems !== 4 ||
+  assessmentBank.stoppingRules?.standardErrorThreshold !== 0.32 ||
+  assessmentBank.stoppingRules?.relativeEstimateChangeThreshold !== 0.03 ||
+  assessmentBank.stoppingRules?.stableEstimateChanges !== 6 ||
+  assessmentBank.stoppingRules?.informationThreshold !== 0.08 ||
   assessmentItems.length !== 1440 ||
   realAssessmentItems.length !== 1200 ||
   pseudowordAssessmentItems.length !== 240 ||

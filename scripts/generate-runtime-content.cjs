@@ -141,6 +141,12 @@ const structuralLevels = [...primaryLevels, ...generatedLegacyLevels].map(
   })
 );
 const layoutHash = sha256Json(structuralLevels);
+const assessmentBankPath = "word_trail_flutter/assets/content/assessment/bank-v1.json";
+const assessmentParityPath =
+  "word_trail_flutter/assets/content/assessment/policy-v2-parity-fixtures.json";
+const assessmentBank = JSON.parse(
+  readFileSync(resolve(ROOT, assessmentBankPath), "utf8")
+);
 const inputHashes = {
   baseContent: sha256File("src/content/vocabulary/generated/nce-1997.json"),
   editorialOverrides: sha256File("src/content/vocabulary/editorial-overrides.ts"),
@@ -150,14 +156,17 @@ const inputHashes = {
   reviewMetadataKey: sha256File("src/lib/review-metadata-key.ts"),
   runtimeGenerator: sha256File("scripts/generate-runtime-content.cjs"),
   mobileCatalog: sha256File(mobileCatalogPath),
-  assessmentBank: sha256File(
-    "word_trail_flutter/assets/content/assessment/bank-v1.json"
-  ),
   layouts: layoutHash,
   runtimeContent: sha256Json({
     words: runtimeWords,
     levels: structuralLevels
   })
+};
+const assessmentIdentity = {
+  bankVersion: assessmentBank.bankVersion,
+  sourceHash: assessmentBank.sourceHash,
+  bankFileHash: sha256File(assessmentBankPath),
+  parityFileHash: sha256File(assessmentParityPath)
 };
 const generatorVersion = [
   baseContentDocument.manifest.generatorVersion,
@@ -176,7 +185,27 @@ const contentHash = sha256Json({
   inputHashes,
   formatVersion: RUNTIME_FORMAT_VERSION
 });
-const contentVersion = `nce-1997-${contentHash.slice("sha256:".length, "sha256:".length + 16)}`;
+// v1 coupled the independent assessment asset to curriculum identity. Preserve
+// the last curriculum-compatible version for this one-time split so an
+// assessment policy update does not make 800 unchanged teaching bundles look
+// like a new curriculum. Future curriculum changes derive a fresh version from
+// the curriculum-only hash recorded below.
+const previousManifestPath = resolve(
+  ROOT,
+  "src/content/vocabulary/generated/content-manifest.json"
+);
+let previousManifest;
+try {
+  previousManifest = JSON.parse(readFileSync(previousManifestPath, "utf8"));
+} catch {
+  previousManifest = undefined;
+}
+const LEGACY_CURRICULUM_VERSION = "nce-1997-690ba5f85e1c9c36";
+const contentVersion = previousManifest?.curriculumHash === contentHash
+  ? previousManifest.contentVersion
+  : previousManifest?.curriculumHash
+    ? `nce-1997-${contentHash.slice("sha256:".length, "sha256:".length + 16)}`
+    : LEGACY_CURRICULUM_VERSION;
 const contentIdentityManifest = {
   version: contentVersion,
   contentVersion,
@@ -192,8 +221,10 @@ const contentIdentityManifest = {
     vocabularyLoader: inputHashes.vocabularyLoader,
     runtimeGenerator: inputHashes.runtimeGenerator
   }),
+  curriculumHash: contentHash,
   contentHash,
-  inputHashes
+  inputHashes,
+  assessmentIdentity
 };
 
 function bindLayoutRevision(level) {
@@ -273,6 +304,15 @@ writeFileSync(
   resolve(assessmentRoot, "bank-v1.json"),
   readFileSync(
     resolve(ROOT, "word_trail_flutter/assets/content/assessment/bank-v1.json")
+  )
+);
+writeFileSync(
+  resolve(assessmentRoot, "policy-v2-parity-fixtures.json"),
+  readFileSync(
+    resolve(
+      ROOT,
+      "word_trail_flutter/assets/content/assessment/policy-v2-parity-fixtures.json"
+    )
   )
 );
 
@@ -377,7 +417,8 @@ writeJson(resolve(runtimeRoot, "manifest.json"), {
   layoutHash,
   generatorHash: contentIdentityManifest.generatorHash,
   contentHash,
-  inputHashes
+  inputHashes,
+  assessmentIdentity
 });
 
 console.log(

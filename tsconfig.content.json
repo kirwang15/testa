@@ -4,6 +4,8 @@
     "outDir": ".content-dist"
   },
   "include": [
+    "lib/web-assessment.ts",
+    "lib/web-assessment-storage.ts",
     "src/content/**/*.ts",
     "src/lib/**/*.ts",
     "types/**/*.ts"

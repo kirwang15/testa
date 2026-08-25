@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { GameLogo } from "@/components/GameLogo";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -16,6 +18,7 @@ import { GAME_CONTENT_VERSION } from "@/lib/storage";
 import { loadReviewMetadataIndex } from "@/lib/review-metadata";
 import { getDueReviewSnapshot } from "@/lib/review-queue";
 import { useI18n } from "@/lib/use-i18n";
+import { buildLevelHref } from "@/lib/level-navigation";
 import type { ReviewMetadataIndex } from "@/types/game";
 import {
   selectActiveGameProgress,
@@ -24,13 +27,17 @@ import {
 } from "@/store/gameStore";
 
 export default function HomePage() {
-  const { t } = useI18n();
+  const router = useRouter();
+  const { language, t } = useI18n();
   const profile = useGameStore(selectActiveProfile);
   const progress = useGameStore(selectActiveGameProgress);
   const [reviewMetadata, setReviewMetadata] = useState<ReviewMetadataIndex>();
   const [reviewMetadataStatus, setReviewMetadataStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
+  const advanceTutorial = useGameStore((state) => state.advanceTutorial);
+  const setTutorialCollapsed = useGameStore((state) => state.setTutorialCollapsed);
+  const tutorialActive = profile.tutorialProgress.status === "in-progress";
   const books = compactBooks;
   const nceLevels = getProgressLevelsByCurriculumId("nce-1997");
   const completedNceLevels = nceLevels.filter(
@@ -95,19 +102,41 @@ export default function HomePage() {
           </p>
         </header>
 
+        {tutorialActive && !profile.tutorialProgress.collapsed ? (
+          <LazyTutorialPanel
+            language={language}
+            section="home"
+            onPrimary={() => {
+              if (profile.tutorialProgress.phase === "home") {
+                advanceTutorial("course-map");
+              }
+              router.push("/map?book=nce-1997-b1");
+            }}
+            onLater={() => setTutorialCollapsed(true)}
+          />
+        ) : tutorialActive ? (
+          <button
+            type="button"
+            onClick={() => setTutorialCollapsed(false)}
+            className="focus-ring w-full rounded-xl border-2 border-ink bg-sun p-4 text-left font-black text-ink shadow-crisp"
+          >
+            {t("tutorial.resumeFirstLevel")}
+          </button>
+        ) : null}
+
         <Link
           href="/assessment"
           className="focus-ring block rounded-xl border-2 border-ink bg-sun p-5 text-ink shadow-crisp"
         >
           <strong className="block text-xl sm:text-2xl">
             {profile.preferences.uiLanguage === "zh-CN"
-              ? "3–5 分钟测词汇量"
-              : "3–5 minute vocabulary estimate"}
+              ? "6–10 分钟测词汇量"
+              : "6–10 minute vocabulary estimate"}
           </strong>
           <span className="mt-2 block text-sm font-bold text-ink/65">
             {profile.preferences.uiLanguage === "zh-CN"
-              ? "不超过 40 题，全程离线。"
-              : "Up to 40 questions, fully offline."}
+              ? "52–80 题自适应估算，全程离线。"
+              : "52–80 adaptive questions, fully offline."}
           </span>
         </Link>
 
@@ -143,10 +172,23 @@ export default function HomePage() {
               </span>
             </div>
             <Link
-              href={recommendedLevel ? `/levels/${recommendedLevel.id}` : "/map"}
+              href={
+                tutorialActive
+                  ? "/map?book=nce-1997-b1"
+                  : recommendedLevel
+                    ? buildLevelHref(recommendedLevel.id, "/")
+                    : "/map"
+              }
+              onClick={() => {
+                if (tutorialActive && profile.tutorialProgress.phase === "home") {
+                  advanceTutorial("course-map");
+                }
+              }}
               className="focus-ring mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border-2 border-white bg-mint px-5 py-3 font-black text-white shadow-crisp transition hover:-translate-y-0.5 sm:w-auto"
             >
-              {recommendedLevel
+              {tutorialActive
+                ? t("tutorial.resumeFirstLevel")
+                : recommendedLevel
                 ? t("home.startAdventure")
                 : t("home.exploreMap")}
             </Link>
@@ -160,12 +202,12 @@ export default function HomePage() {
             </p>
             <p className="mt-1 text-xl font-black text-ink">
               {reviewMetadataStatus === "loading"
-                ? t("review.loading")
+                ? t("home.reviewLoading")
                 : t("home.dueNow", { count: dueCount })}
             </p>
             <p className="mt-1 text-sm font-bold text-ink/60">
               {reviewMetadataStatus === "error"
-                ? t("review.loadErrorDescription")
+                ? t("home.reviewLoadError")
                 : dueCount > 0
                   ? t("home.reviewReady")
                   : t("home.reviewClear")}
@@ -259,3 +301,11 @@ export default function HomePage() {
     </main>
   );
 }
+
+const LazyTutorialPanel = dynamic(
+  () => import("@/components/TutorialPanel").then((module) => module.TutorialPanel),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-40 rounded-xl border-2 border-ink/15 bg-sun/40" aria-hidden="true" />
+  }
+);

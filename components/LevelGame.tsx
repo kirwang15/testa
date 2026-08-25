@@ -10,6 +10,7 @@ import {
   Trophy
 } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { CrosswordGrid } from "@/components/CrosswordGrid";
 import { CompletionActions } from "@/components/CompletionActions";
@@ -49,7 +50,16 @@ import { getLevelScopedAttemptProgress } from "@/lib/level-session";
 import { isSpeechRequestCurrent } from "@/lib/speech-request";
 import { sanitizeLevelPresentationText } from "@/lib/word-card-presentation";
 import { speakEnglishWord } from "@/lib/speech";
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
+import {
+  claimAutoSubmission,
+  resetAutoSubmission
+} from "@/lib/auto-word-validation";
+import {
+  getDirectLevelFallback,
+  sanitizeLevelReturnTo
+} from "@/lib/level-navigation";
+import { mustInspectTutorialWord } from "@/lib/tutorial-progress";
 import {
   selectActiveGameProgress,
   selectActiveProfile,
@@ -80,6 +90,7 @@ type LevelGameProps = {
 
 type ResolvedLevelGameProps = {
   level: Level;
+  returnTo: string;
 };
 
 type FeedbackState = {
@@ -90,11 +101,15 @@ type FeedbackState = {
 };
 
 export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   const activeProfile = useGameStore(selectActiveProfile);
   const hasHydrated = useGameStore((state) => state.hasHydrated);
   const runtimeLevelId = toRuntimeLevelId(levelId);
   const levelSummary = getLevelById(runtimeLevelId);
+  const [requestedReturnTo, setRequestedReturnTo] = useState<string>();
+  const safeReturnTo =
+    sanitizeLevelReturnTo(requestedReturnTo) ??
+    getDirectLevelFallback(levelSummary?.curriculumId, levelSummary?.bookId ?? "nce-1997-b1");
   const indexBlocked = Boolean(
     hasHydrated && levelSummary && !canAccessLevel(activeProfile, levelSummary)
   );
@@ -103,6 +118,12 @@ export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
   const [level, setLevel] = useState<Level>();
   const [loadError, setLoadError] = useState(false);
   const [retrySequence, setRetrySequence] = useState(0);
+
+  useEffect(() => {
+    setRequestedReturnTo(
+      new URLSearchParams(window.location.search).get("returnTo") ?? undefined
+    );
+  }, [levelId]);
 
   useEffect(() => {
     setLevel(undefined);
@@ -160,8 +181,8 @@ export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
             {t("game.contentBlockedDescription")}
           </p>
           <div className="mt-5 grid gap-2 sm:grid-cols-3">
-            <Link href="/map" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-amber-100 px-4 py-2 font-black text-[#301006]">
-              {t("nav.map")}
+            <Link href={safeReturnTo} className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-amber-100 px-4 py-2 font-black text-[#301006]">
+              {t("nav.backPrevious")}
             </Link>
             <Link href="/settings" className="focus-ring inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-100/30 bg-black/30 px-4 py-2 font-black">
               {t("nav.settings")}
@@ -192,7 +213,7 @@ export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
               {t("game.retry")}
             </button>
             <Link
-              href="/map"
+              href={safeReturnTo}
               className="focus-ring inline-flex min-h-11 items-center rounded-xl border border-amber-100/30 bg-black/30 px-4 py-2 font-black"
             >
               {t("nav.backMap")}
@@ -225,12 +246,13 @@ export function LevelGame({ levelId, contentVersion }: LevelGameProps) {
     <ResolvedLevelGame
       key={`${contentVersion}:${runtimeLevelId}`}
       level={level}
+      returnTo={safeReturnTo}
     />
   );
 }
 
-function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
-  const { t } = useI18n();
+function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
+  const { language, t } = useLevelI18n();
   const activeProfile = useGameStore(selectActiveProfile);
   const activeProgress = useGameStore(selectActiveGameProgress);
   const activeProfileId = activeProfile.id;
@@ -249,6 +271,13 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   const confirmPronunciationHint = useGameStore(
     (state) => state.confirmPronunciationHint
   );
+  const advanceTutorial = useGameStore((state) => state.advanceTutorial);
+  const setTutorialCollapsed = useGameStore((state) => state.setTutorialCollapsed);
+  const tutorial = activeProfile.tutorialProgress;
+  const isTutorialLevel =
+    tutorial.status === "in-progress" &&
+    tutorial.tutorialLevelId === level.id;
+  const requiresTutorialDetail = mustInspectTutorialWord(tutorial, level.id);
   const [attemptProgress, setAttemptProgress] = useState<LevelProgress>();
   const [sessionLevelId, setSessionLevelId] = useState(level.id);
   const [sessionProfileId, setSessionProfileId] = useState(activeProfileId);
@@ -270,6 +299,9 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   const [selectedWordId, setSelectedWordId] = useState<string | undefined>(
     level.targetWords[0]?.id
   );
+  const [inspectedWordId, setInspectedWordId] = useState<string>();
+  const [invalidDraftWordId, setInvalidDraftWordId] = useState<string>();
+  const [tutorialExplanationDismissed, setTutorialExplanationDismissed] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>({
     id: 0,
     type: "neutral",
@@ -281,6 +313,7 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   const [recentHintCellKey, setRecentHintCellKey] = useState<CellKey>();
   const feedbackIdRef = useRef(0);
   const submitLockedRef = useRef(false);
+  const lastSubmittedSignatureRef = useRef<string | undefined>(undefined);
   const hintLockedRef = useRef(false);
   const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -374,6 +407,9 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     setSessionProfileId(activeProfileId);
     setCrosswordDraft(createEmptyCrosswordDraft(level.targetWords[0]?.id));
     setSelectedWordId(level.targetWords[0]?.id);
+    setInspectedWordId(undefined);
+    setInvalidDraftWordId(undefined);
+    lastSubmittedSignatureRef.current = resetAutoSubmission();
     setRecentWordId(undefined);
     setRecentHintCellKey(undefined);
     speechRequestTokenRef.current += 1;
@@ -397,6 +433,10 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setTutorialExplanationDismissed(false);
+  }, [tutorial.phase]);
 
   const showFeedback = (
     type: FeedbackType,
@@ -443,6 +483,8 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   const chooseLetter = (index: number) => {
     if (
       progress.completed ||
+      inspectedWordId !== undefined ||
+      requiresTutorialDetail ||
       isReadOnly ||
       !sessionIsCurrent ||
       isSubmitting ||
@@ -454,6 +496,8 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
       return;
     }
 
+    setInvalidDraftWordId(undefined);
+    lastSubmittedSignatureRef.current = resetAutoSubmission();
     setCrosswordDraft((current) =>
       addCrosswordDraftLetter(
         level,
@@ -467,11 +511,17 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
   };
 
   const clearWord = () => {
+    if (inspectedWordId || requiresTutorialDetail) return;
+    setInvalidDraftWordId(undefined);
+    lastSubmittedSignatureRef.current = resetAutoSubmission();
     setCrosswordDraft(createEmptyCrosswordDraft(activeClue?.id));
     showFeedback("neutral", t("game.ready"));
   };
 
   const backspace = () => {
+    if (inspectedWordId || requiresTutorialDetail) return;
+    setInvalidDraftWordId(undefined);
+    lastSubmittedSignatureRef.current = resetAutoSubmission();
     setCrosswordDraft((current) =>
       removeLastCrosswordDraftLetter(
         level,
@@ -484,9 +534,17 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
 
   const selectClue = (wordId: string) => {
     if (progress.foundWords.includes(wordId)) {
+      setInspectedWordId(wordId);
+      if (isTutorialLevel && tutorial.phase === "first-word-detail") {
+        advanceTutorial("first-word-detail", { firstWordDetailSeen: true });
+      }
       return;
     }
 
+    if (requiresTutorialDetail) return;
+
+    setInspectedWordId(undefined);
+    setInvalidDraftWordId(undefined);
     setSelectedWordId(wordId);
     setCrosswordDraft(createEmptyCrosswordDraft(wordId));
     const clueIndex = level.targetWords.findIndex((word) => word.id === wordId);
@@ -496,9 +554,11 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     );
   };
 
-  const submitCurrentWord = () => {
+  const validateCompletedDraft = () => {
     if (
       progress.completed ||
+      inspectedWordId !== undefined ||
+      requiresTutorialDetail ||
       isReadOnly ||
       !sessionIsCurrent ||
       isSubmitting ||
@@ -509,6 +569,14 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
       return;
     }
 
+    const submissionSignature = `${activeProfileId}:${level.id}:${activeClue.id}:${draftView.submission}`;
+    const claim = claimAutoSubmission(
+      lastSubmittedSignatureRef.current,
+      submissionSignature
+    );
+    if (!claim.accepted) return;
+    lastSubmittedSignatureRef.current = claim.lastSignature;
+
     lockSubmitBriefly();
     const submission = submitWord(
       level,
@@ -518,7 +586,6 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     );
     const result = submission.result;
     setAttemptProgress(submission.attemptProgress);
-    setCrosswordDraft(createEmptyCrosswordDraft(activeClue.id));
 
     if (result.status === "read-only") {
       showFeedback("duplicate", t("storage.unsupported"));
@@ -527,14 +594,32 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
 
     if (result.status === "correct") {
       speechRequestTokenRef.current += 1;
+      setInvalidDraftWordId(undefined);
       setRecentWordId(result.word.id);
-      showFeedback("correct", t("game.wordFound"), t("game.gridFilled"));
+      const nextWord = level.targetWords.find(
+        (word) => !submission.attemptProgress.foundWords.includes(word.id)
+      );
+      setSelectedWordId(nextWord?.id);
+      setCrosswordDraft(createEmptyCrosswordDraft(nextWord?.id));
+      showFeedback(
+        "correct",
+        t("game.wordFound"),
+        isTutorialLevel && tutorial.phase === "game-ui"
+          ? t("game.openGreenDetail")
+          : t("game.gridFilled")
+      );
+      if (isTutorialLevel && tutorial.phase === "game-ui") {
+        advanceTutorial("first-word-detail");
+      }
       return;
     }
 
     if (result.status === "level-complete") {
       speechRequestTokenRef.current += 1;
+      setInvalidDraftWordId(undefined);
       setRecentWordId(result.word.id);
+      setSelectedWordId(undefined);
+      setCrosswordDraft(createEmptyCrosswordDraft());
       const rewardMessage = result.reward === 0
         ? t("game.bestSaved")
         : result.bonusReward > 0
@@ -552,6 +637,7 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     }
 
     if (result.status === "already-found") {
+      setCrosswordDraft(createEmptyCrosswordDraft(activeClue.id));
       showFeedback(
         "duplicate",
         t("game.alreadyFound"),
@@ -560,6 +646,9 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
       return;
     }
 
+    // Keep the spelling in place so the learner can see and repair it. The
+    // signature above suppresses resubmission until at least one letter changes.
+    setInvalidDraftWordId(activeClue.id);
     showFeedback(
       "wrong",
       t("game.notPuzzle"),
@@ -567,9 +656,62 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     );
   };
 
+  useEffect(() => {
+    if (
+      !draftView.complete ||
+      !draftView.submission ||
+      !activeClue ||
+      inspectedWordId !== undefined ||
+      requiresTutorialDetail ||
+      isSubmitting ||
+      progress.completed
+    ) {
+      return;
+    }
+    const task = window.setTimeout(validateCompletedDraft, 0);
+    return () => window.clearTimeout(task);
+  }, [
+    activeClue?.id,
+    draftView.complete,
+    draftView.submission,
+    inspectedWordId,
+    isSubmitting,
+    progress.completed,
+    requiresTutorialDetail
+  ]);
+
+  const continueFromDetail = () => {
+    setInspectedWordId(undefined);
+    const nextWord = level.targetWords.find(
+      (word) => !progress.foundWords.includes(word.id)
+    );
+    setSelectedWordId(nextWord?.id);
+    setCrosswordDraft(createEmptyCrosswordDraft(nextWord?.id));
+    setInvalidDraftWordId(undefined);
+  };
+
+  useEffect(() => {
+    if (
+      isTutorialLevel &&
+      progress.completed &&
+      tutorial.phase === "first-word-detail" &&
+      tutorial.firstWordDetailSeen
+    ) {
+      advanceTutorial("level-complete", { levelCompleted: true });
+    }
+  }, [
+    advanceTutorial,
+    isTutorialLevel,
+    progress.completed,
+    tutorial.firstWordDetailSeen,
+    tutorial.phase
+  ]);
+
   const revealHint = () => {
     if (
       progress.completed ||
+      inspectedWordId !== undefined ||
+      requiresTutorialDetail ||
       isReadOnly ||
       !sessionIsCurrent ||
       isHinting ||
@@ -689,6 +831,8 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         progress.completed ||
+        inspectedWordId !== undefined ||
+        requiresTutorialDetail ||
         isReadOnly ||
         !sessionIsCurrent ||
         isSubmitting ||
@@ -706,12 +850,6 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement
       ) {
-        return;
-      }
-
-      if (event.key === "Enter") {
-        event.preventDefault();
-        submitCurrentWord();
         return;
       }
 
@@ -748,6 +886,8 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     activeClue,
     isSubmitting,
     isReadOnly,
+    inspectedWordId,
+    requiresTutorialDetail,
     level.letters,
     progress.completed,
     activeSelectedIndexes,
@@ -759,9 +899,9 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-3 py-3 sm:px-5 sm:py-5 lg:px-8">
         <header className="flex items-start justify-between gap-3">
           <Link
-            href="/map"
+            href={returnTo}
             className="game-icon-button focus-ring"
-            aria-label={safeText(t("nav.backMap"))}
+            aria-label={safeText(t("nav.backPrevious"))}
           >
             <ArrowLeft className="h-5 w-5" aria-hidden="true" />
           </Link>
@@ -789,6 +929,39 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
           </div>
         </header>
 
+        {isTutorialLevel && !tutorial.collapsed && !tutorialExplanationDismissed ? (
+          <div className="mt-3">
+            <LazyTutorialPanel
+              compact
+              language={language}
+              section={
+                tutorial.phase !== "first-word-detail" && tutorial.phase !== "level-complete"
+                  ? "game"
+                  : tutorial.phase === "first-word-detail" && inspectedWordId
+                    ? "detail"
+                    : tutorial.phase === "first-word-detail"
+                      ? "open-solved"
+                      : "complete"
+              }
+              onPrimary={
+                tutorial.phase === "game-ui"
+                  ? () => setTutorialExplanationDismissed(true)
+                  : undefined
+              }
+              laterHref={returnTo}
+              onLater={() => setTutorialCollapsed(true)}
+            />
+          </div>
+        ) : isTutorialLevel && tutorial.collapsed ? (
+          <button
+            type="button"
+            onClick={() => setTutorialCollapsed(false)}
+            className="focus-ring mt-3 w-full rounded-xl border-2 border-ink bg-sun p-4 text-left font-black text-ink shadow-crisp"
+          >
+            {t("tutorial.resumeFirstLevel")}
+          </button>
+        ) : null}
+
         <section className="grid flex-1 gap-2 py-2 sm:gap-3 sm:py-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:items-start lg:gap-5 lg:py-5">
           <div className="order-2 flex min-h-full flex-col items-center justify-start gap-2 sm:gap-4 lg:order-1 lg:justify-center">
             <div className="flex w-full max-w-[760px] items-center justify-center">
@@ -800,6 +973,7 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                 draftLetters={draftView.cellLetters}
                 recentHintCellKey={sessionIsCurrent ? recentHintCellKey : undefined}
                 recentWordId={sessionIsCurrent ? recentWordId : undefined}
+                invalidWordId={invalidDraftWordId}
                 sanitizeText={safeText}
               />
             </div>
@@ -809,8 +983,9 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                 <button
                   type="button"
                   onClick={revealHint}
-                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting}
-                  className="game-orb-button focus-ring"
+                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting || inspectedWordId !== undefined || requiresTutorialDetail}
+                  aria-disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting || inspectedWordId !== undefined || requiresTutorialDetail}
+                  className="game-orb-button focus-ring disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label={safeText(
                     hintAction === "pronunciation"
                       ? t("game.playPronunciation")
@@ -839,13 +1014,13 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                   letters={level.letters}
                   selectedIndexes={activeSelectedIndexes}
                   currentWord={currentWord}
-                  canSubmit={draftView.complete}
-                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isSubmitting}
+                  disabled={progress.completed || isReadOnly || !sessionIsCurrent || isSubmitting || inspectedWordId !== undefined || requiresTutorialDetail}
+                  readOnlyDetail={inspectedWordId !== undefined}
+                  invalid={invalidDraftWordId !== undefined}
                   isSubmitting={isSubmitting}
                   onBackspace={backspace}
                   onChoose={chooseLetter}
                   onClear={clearWord}
-                  onSubmit={submitCurrentWord}
                   sanitizeText={safeText}
                 />
                 <p className="mt-2 text-center text-xs font-bold text-amber-100/75">
@@ -914,7 +1089,7 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                 progress={progress}
                 recentWordId={sessionIsCurrent ? recentWordId : undefined}
                 hintTargetId={activeClue?.id}
-                activeWordId={activeClue?.id}
+                activeWordId={inspectedWordId ?? activeClue?.id}
                 clueLanguage={activeProfile.preferences.clueLanguage}
                 wordProgressById={wordProgressById}
                 onToggleClueLanguage={() =>
@@ -927,6 +1102,7 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                 }
                 onToggleFavorite={toggleFavorite}
                 onSelectWord={selectClue}
+                onContinueFromDetail={continueFromDetail}
                 mutationDisabled={isReadOnly}
               />
               {sessionIsCurrent && (feedback.id > 0 || progress.completed) ? (
@@ -956,8 +1132,14 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
                 <CompletionActions
                   stars={scoreLevelAttempt(progress)}
                   nextLevelId={nextLevel?.id}
+                  returnTo={returnTo}
                   onReplay={replayLevel}
                   replayDisabled={isReadOnly}
+                  onFinishTutorial={
+                    isTutorialLevel && tutorial.phase === "level-complete"
+                      ? () => advanceTutorial("completed", { levelCompleted: true })
+                      : undefined
+                  }
                 />
               ) : null}
             </div>
@@ -967,3 +1149,11 @@ function ResolvedLevelGame({ level }: ResolvedLevelGameProps) {
     </main>
   );
 }
+
+const LazyTutorialPanel = dynamic(
+  () => import("@/components/TutorialPanel").then((module) => module.TutorialPanel),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-36 rounded-xl border border-amber-100/20 bg-black/15" aria-hidden="true" />
+  }
+);

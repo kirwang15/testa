@@ -269,7 +269,7 @@ describe("isolated runtime content delivery", () => {
     }
   });
 
-  test("derives one deterministic content identity from every mutable input", () => {
+  test("keeps curriculum and assessment identities independent and deterministic", () => {
     const sha256 = (value: string | Buffer) =>
       `sha256:${createHash("sha256").update(value).digest("hex")}`;
     const sha256File = (path: string) => sha256(readFileSync(path));
@@ -309,9 +309,22 @@ describe("isolated runtime content delivery", () => {
       })
     );
     assert.equal(manifest.contentHash, expectedContentHash);
+    assert.equal(manifest.curriculumHash, expectedContentHash);
+    assert.equal(manifest.contentVersion, "nce-1997-690ba5f85e1c9c36");
+    assert.equal("assessmentBank" in manifest.inputHashes, false);
+    assert.equal("assessmentParityFixtures" in manifest.inputHashes, false);
+    const assessmentBank = JSON.parse(
+      readFileSync("word_trail_flutter/assets/content/assessment/bank-v1.json", "utf8")
+    ) as { bankVersion: string; sourceHash: string };
+    assert.equal(manifest.assessmentIdentity.bankVersion, assessmentBank.bankVersion);
+    assert.equal(manifest.assessmentIdentity.sourceHash, assessmentBank.sourceHash);
     assert.equal(
-      manifest.contentVersion,
-      `nce-1997-${expectedContentHash.slice("sha256:".length, "sha256:".length + 16)}`
+      manifest.assessmentIdentity.bankFileHash,
+      sha256File("word_trail_flutter/assets/content/assessment/bank-v1.json")
+    );
+    assert.equal(
+      manifest.assessmentIdentity.parityFileHash,
+      sha256File("word_trail_flutter/assets/content/assessment/policy-v2-parity-fixtures.json")
     );
     assert.equal(curriculumIndex.contentVersion, manifest.contentVersion);
     assert.equal(contentManifest.version, manifest.contentVersion);

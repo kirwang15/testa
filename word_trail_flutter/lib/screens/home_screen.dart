@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../l10n/app_strings.dart';
 import '../models/course.dart';
 import '../models/assessment.dart';
+import '../models/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shell.dart';
 import 'assessment_intro_screen.dart';
@@ -12,6 +13,7 @@ import 'map_screen.dart';
 import 'parent_screen.dart';
 import 'review_screen.dart';
 import 'settings_screen.dart';
+import 'wordbook_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.controller});
@@ -31,6 +33,7 @@ class HomeScreen extends StatelessWidget {
     final continueId = controller.continueLevelId;
     final continueEntry = controller.catalog.level(continueId);
     final continueTrack = controller.catalog.track(continueEntry.trackId);
+    final tutorial = controller.tutorialProgress;
     return AppShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -76,6 +79,41 @@ class HomeScreen extends StatelessWidget {
             style: const TextStyle(color: Color(0xCFFFE7B0), fontSize: 16),
           ),
           const SizedBox(height: 18),
+          if (tutorial != null && !tutorial.isCompleted) ...[
+            TrailCard(
+              highlighted: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.explore_rounded, color: AppColors.amber),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          t('guide.homeCoachTitle'),
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    t('guide.homeModules'),
+                    style: const TextStyle(height: 1.5),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    key: const Key('tutorial-resume'),
+                    onPressed: () => _resumeTutorial(context, tutorial),
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                    label: Text(t('guide.resumeFirstLevel')),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+          ],
           TrailCard(
             highlighted: true,
             onTap: () =>
@@ -177,10 +215,16 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 12),
           TrailCard(
             highlighted: true,
-            onTap: () => _push(
-              context,
-              GameScreen(controller: controller, levelId: continueId),
-            ),
+            onTap: controller.hasActiveTutorial && tutorial != null
+                ? () => _resumeTutorial(context, tutorial)
+                : () => _push(
+                    context,
+                    GameScreen(
+                      controller: controller,
+                      levelId: continueId,
+                      returnContext: const GameReturnContext.home(),
+                    ),
+                  ),
             child: Row(
               children: [
                 Container(
@@ -275,6 +319,26 @@ class HomeScreen extends StatelessWidget {
                       _push(context, ParentScreen(controller: controller)),
                 ),
                 _QuickCard(
+                  icon: Icons.bookmarks_outlined,
+                  title: t('home.wordbook'),
+                  subtitle: t('home.wordbookCount', {
+                    'count': controller.learnedWordCount,
+                  }),
+                  onTap: () =>
+                      _push(context, WordbookScreen(controller: controller)),
+                ),
+                _QuickCard(
+                  icon: Icons.translate_rounded,
+                  title: t('home.language'),
+                  subtitle: t('home.languageDesc', {
+                    'language': profile.uiLanguage == UiLanguage.chinese
+                        ? t('settings.chinese')
+                        : t('settings.english'),
+                  }),
+                  onTap: () =>
+                      _push(context, SettingsScreen(controller: controller)),
+                ),
+                _QuickCard(
                   icon: Icons.settings_outlined,
                   title: t('home.settings'),
                   subtitle: t.ageBandLabel(profile.ageBand),
@@ -351,6 +415,39 @@ class HomeScreen extends StatelessWidget {
   static String _formatEstimate(int value) => value >= 1000
       ? '${value ~/ 1000},${(value % 1000).toString().padLeft(3, '0')}'
       : '$value';
+
+  void _resumeTutorial(BuildContext context, TutorialProgress tutorial) {
+    final entry = controller.catalog.level(tutorial.levelId);
+    controller.selectCurriculum(entry.curriculumId);
+    if (tutorial.phase == TutorialPhase.home ||
+        tutorial.phase == TutorialPhase.courseMap) {
+      controller.setTutorialPhase(
+        TutorialPhase.courseMap,
+        levelId: tutorial.levelId,
+      );
+      _push(
+        context,
+        MapScreen(
+          controller: controller,
+          curriculumId: entry.curriculumId,
+          initialTrackId: entry.trackId,
+        ),
+      );
+      return;
+    }
+    _push(
+      context,
+      GameScreen(
+        controller: controller,
+        levelId: tutorial.levelId,
+        returnContext: GameReturnContext(
+          source: GameEntrySource.tutorial,
+          curriculumId: entry.curriculumId,
+          trackId: entry.trackId,
+        ),
+      ),
+    );
+  }
 }
 
 class _CourseCard extends StatelessWidget {

@@ -29,7 +29,7 @@ class AppController extends ChangeNotifier {
        assessmentRepository = assessmentRepository ?? AssessmentRepository(),
        _store = store ?? LocalStore();
 
-  static const storageVersion = 5;
+  static const storageVersion = 6;
   static const defaultCurriculumId = 'nce-1997';
 
   final CourseRepository repository;
@@ -46,7 +46,10 @@ class AppController extends ChangeNotifier {
   bool get isReady => storageStatus != StorageStatus.loading;
   bool get hasProfile => activeProfile != null;
   bool get needsGettingStarted =>
-      activeProfile != null && !activeProfile!.hasSeenGettingStarted;
+      activeProfile?.tutorialProgress.phase == TutorialPhase.intro;
+  bool get hasActiveTutorial =>
+      activeProfile != null && !activeProfile!.tutorialProgress.isCompleted;
+  TutorialProgress? get tutorialProgress => activeProfile?.tutorialProgress;
   List<PlayerProfile> get profiles => _profiles.values.toList(growable: false);
   PlayerProfile? get activeProfile => _profiles[_activeProfileId];
   AssessmentSession? get activeAssessmentSession =>
@@ -106,12 +109,26 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      if (version != 3 && version != 4 && version != storageVersion) {
+      if (version != 3 &&
+          version != 4 &&
+          version != 5 &&
+          version != storageVersion) {
         throw const FormatException('Unsupported legacy Flutter save');
       }
       final rawProfiles = json['profiles'] as Map<String, dynamic>? ?? const {};
+      var discardedIncompatibleAssessment = false;
       _profiles = rawProfiles.map((key, value) {
         final parsed = PlayerProfile.fromJson(value as Map<String, dynamic>);
+        final activeAssessmentMatches =
+            parsed.activeAssessmentSession == null ||
+            parsed.activeAssessmentSession!.bankVersion ==
+                _assessmentBank!.bankVersion;
+        if (!activeAssessmentMatches) {
+          discardedIncompatibleAssessment = true;
+        }
+        final tutorialProgress = _normalizeTutorialProgress(
+          parsed.tutorialProgress,
+        );
         final curriculumId =
             catalog.curricula.any(
               (item) => item.id == parsed.activeCurriculumId,
@@ -128,14 +145,15 @@ class AppController extends ChangeNotifier {
             clueLanguage: parsed.clueLanguage,
             createdAt: parsed.createdAt,
             activeCurriculumId: curriculumId,
-            hasSeenGettingStarted: parsed.hasSeenGettingStarted,
+            hasSeenGettingStarted:
+                parsed.hasSeenGettingStarted || tutorialProgress.isCompleted,
+            tutorialProgress: tutorialProgress,
+            favoriteWordIds: parsed.favoriteWordIds,
             coins: parsed.coins,
             levels: parsed.levels,
             review: parsed.review,
             activeDates: parsed.activeDates,
-            activeAssessmentSession:
-                parsed.activeAssessmentSession?.bankVersion ==
-                    _assessmentBank!.bankVersion
+            activeAssessmentSession: activeAssessmentMatches
                 ? parsed.activeAssessmentSession
                 : null,
             assessmentHistory: parsed.assessmentHistory,
@@ -148,7 +166,9 @@ class AppController extends ChangeNotifier {
           : (_profiles.isEmpty ? null : _profiles.keys.first);
       storageStatus = StorageStatus.ready;
       _rebuildAssessmentEngine();
-      if (version != storageVersion) unawaited(_persist());
+      if (version != storageVersion || discardedIncompatibleAssessment) {
+        await _persist();
+      }
     } catch (_) {
       _profiles = {};
       _activeProfileId = null;
@@ -177,6 +197,7 @@ class AppController extends ChangeNotifier {
         clueLanguage: UiLanguage.english,
         createdAt: now,
         hasSeenGettingStarted: false,
+        tutorialProgress: const TutorialProgress.newPlayer(),
       ),
     };
     _activeProfileId = id;
@@ -199,10 +220,45 @@ class AppController extends ChangeNotifier {
     _replaceActive(profile.copyWith(activeCurriculumId: curriculumId));
   }
 
-  void completeGettingStarted() {
+  void beginTutorial() {
     final profile = activeProfile;
-    if (profile == null || profile.hasSeenGettingStarted) return;
-    _replaceActive(profile.copyWith(hasSeenGettingStarted: true));
+    if (profile == null ||
+        profile.tutorialProgress.phase != TutorialPhase.intro) {
+      return;
+    }
+    _replaceActive(
+      profile.copyWith(
+        tutorialProgress: profile.tutorialProgress.copyWith(
+          phase: TutorialPhase.home,
+        ),
+      ),
+    );
+  }
+
+  void setTutorialPhase(TutorialPhase phase, {String? levelId}) {
+    final profile = activeProfile;
+    if (profile == null || profile.tutorialProgress.isCompleted) return;
+    final current = profile.tutorialProgress;
+    if (phase.index != current.phase.index + 1) return;
+    _replaceActive(
+      profile.copyWith(
+        hasSeenGettingStarted: phase == TutorialPhase.completed,
+        tutorialProgress: current.copyWith(phase: phase, levelId: levelId),
+      ),
+    );
+  }
+
+  bool isFavorite(String wordId) =>
+      activeProfile?.favoriteWordIds.contains(wordId) ?? false;
+
+  void toggleFavorite(String wordId) {
+    final profile = activeProfile;
+    if (profile == null) return;
+    final favorites = Set<String>.of(profile.favoriteWordIds);
+    favorites.contains(wordId)
+        ? favorites.remove(wordId)
+        : favorites.add(wordId);
+    _replaceActive(profile.copyWith(favoriteWordIds: favorites));
   }
 
   Future<void> startAssessment(AssessmentAnchor anchor) async {
@@ -326,6 +382,15 @@ class AppController extends ChangeNotifier {
             .where((item) => item.isDue(now) && _canReview(item))
             .length ??
         0;
+  }
+
+  int get learnedWordCount {
+    final profile = activeProfile;
+    if (profile == null) return 0;
+    return <String>{
+      ...profile.favoriteWordIds,
+      for (final progress in profile.levels.values) ...progress.solvedWordIds,
+    }.length;
   }
 
   List<ReviewDebt> get dueReviewItems {
@@ -511,6 +576,8 @@ class AppController extends ChangeNotifier {
         createdAt: profile.createdAt,
         activeCurriculumId: profile.activeCurriculumId,
         hasSeenGettingStarted: profile.hasSeenGettingStarted,
+        tutorialProgress: profile.tutorialProgress,
+        favoriteWordIds: profile.favoriteWordIds,
       ),
     );
   }
@@ -532,6 +599,19 @@ class AppController extends ChangeNotifier {
       seed: session.startedAt.microsecondsSinceEpoch,
       previouslyExposedLemmaIds: _previouslyExposedLemmaIds(bank),
     );
+  }
+
+  TutorialProgress _normalizeTutorialProgress(TutorialProgress progress) {
+    if (progress.isCompleted) return const TutorialProgress.completed();
+    if (progress.levelId != TutorialProgress.defaultLevelId) {
+      return progress.copyWith(levelId: TutorialProgress.defaultLevelId);
+    }
+    try {
+      catalog.level(progress.levelId);
+      return progress;
+    } on ArgumentError {
+      return progress.copyWith(levelId: TutorialProgress.defaultLevelId);
+    }
   }
 
   Set<String> _previouslyExposedLemmaIds(AssessmentBank bank) {

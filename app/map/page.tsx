@@ -2,6 +2,8 @@
 
 import { ArrowLeft, BookOpen, Check, ShieldAlert, Star } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import {
@@ -24,18 +26,29 @@ import type {
   ContentRating,
   CurriculumLevelIndex
 } from "@/types/game";
+import { buildLevelHref } from "@/lib/level-navigation";
 
 export default function MapPage() {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const progress = useGameStore(selectActiveGameProgress);
   const profile = useGameStore(selectActiveProfile);
+  const advanceTutorial = useGameStore((state) => state.advanceTutorial);
+  const setTutorialCollapsed = useGameStore((state) => state.setTutorialCollapsed);
+  const tutorial = profile.tutorialProgress;
   const books = getAllBooks();
   const recommendedLevel = getRecommendedEligibleLevel(
     getAllLevels(),
     progress.levels,
     profile
   );
-  const initialBookId = recommendedLevel?.bookId ?? books[0]?.id ?? "";
+  const requestedBookId = searchParams.get("book");
+  const initialBookId =
+    books.find((book) => book.id === requestedBookId)?.id ??
+    recommendedLevel?.bookId ??
+    books[0]?.id ??
+    "";
   const [selectedBookId, setSelectedBookId] = useState(initialBookId);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -95,6 +108,37 @@ export default function MapPage() {
             {t("map.description")}
           </p>
         </header>
+
+        {tutorial.status === "in-progress" && !tutorial.collapsed ? (
+          <div className="mt-4">
+            <LazyTutorialPanel
+              compact
+              language={language}
+              section="map"
+              onPrimary={() => {
+                if (tutorial.phase === "course-map") {
+                  advanceTutorial("game-ui");
+                }
+                router.push(
+                  buildLevelHref(
+                    tutorial.tutorialLevelId,
+                    "/map?book=nce-1997-b1"
+                  )
+                );
+              }}
+              laterHref="/"
+              onLater={() => setTutorialCollapsed(true)}
+            />
+          </div>
+        ) : tutorial.status === "in-progress" ? (
+          <button
+            type="button"
+            onClick={() => setTutorialCollapsed(false)}
+            className="focus-ring mt-4 w-full rounded-xl border-2 border-ink bg-sun p-4 text-left font-black text-ink shadow-crisp"
+          >
+            {t("tutorial.resumeFirstLevel")}
+          </button>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-4 gap-2" role="tablist" aria-label={t("map.title")}>
           {books.map((book, index) => {
@@ -193,6 +237,7 @@ export default function MapPage() {
                     accessible={accessible}
                     stateLabel={stateLabel}
                     ratingLabel={ratingLabel(level.rating)}
+                    returnTo={`/map?book=${selectedBook.id}`}
                   />
                 );
               })}
@@ -204,6 +249,14 @@ export default function MapPage() {
   );
 }
 
+const LazyTutorialPanel = dynamic(
+  () => import("@/components/TutorialPanel").then((module) => module.TutorialPanel),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-36 rounded-xl border-2 border-ink/15 bg-sun/40" aria-hidden="true" />
+  }
+);
+
 type LevelMarkerProps = {
   level: CurriculumLevelIndex;
   levelNumber: number;
@@ -214,6 +267,7 @@ type LevelMarkerProps = {
   accessible: boolean;
   stateLabel: string;
   ratingLabel: string;
+  returnTo: string;
 };
 
 function LevelMarker({
@@ -225,7 +279,8 @@ function LevelMarker({
   current,
   accessible,
   stateLabel,
-  ratingLabel
+  ratingLabel,
+  returnTo
 }: LevelMarkerProps) {
   const { t } = useI18n();
   const guarded = level.rating !== "all-ages";
@@ -259,7 +314,7 @@ function LevelMarker({
   );
 
   return accessible ? (
-    <Link href={`/levels/${level.id}`} className={className} aria-label={ariaLabel}>
+    <Link href={buildLevelHref(level.id, returnTo)} className={className} aria-label={ariaLabel}>
       {content}
     </Link>
   ) : (

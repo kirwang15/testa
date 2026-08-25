@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../l10n/app_strings.dart';
+import '../models/player_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shell.dart';
 import 'game_screen.dart';
@@ -45,6 +46,11 @@ class _MapScreenState extends State<MapScreen> {
     final current = widget.curriculumId == controller.activeCurriculum.id
         ? controller.continueLevelId
         : null;
+    final tutorial = controller.tutorialProgress;
+    final tutorialOnMap =
+        tutorial?.phase == TutorialPhase.courseMap &&
+        controller.catalog.level(tutorial!.levelId).curriculumId ==
+            widget.curriculumId;
     return AppShell(
       appBar: AppBar(
         title: Text(t('map.title', {'course': t.curriculumTitle(curriculum)})),
@@ -62,15 +68,28 @@ class _MapScreenState extends State<MapScreen> {
             style: const TextStyle(color: Color(0xCFFFE7B0)),
           ),
           const SizedBox(height: 16),
-          if (controller.completedInCurriculum(widget.curriculumId) == 0) ...[
+          if (tutorialOnMap) ...[
             TrailCard(
+              key: const Key('tutorial-map-coach'),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               highlighted: true,
               child: Row(
                 children: [
                   const Icon(Icons.touch_app_rounded, color: AppColors.amber),
                   const SizedBox(width: 10),
-                  Expanded(child: Text(t('guide.mapTip'))),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t('guide.mapCoachTitle'),
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(t('guide.mapModules')),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -139,6 +158,9 @@ class _MapScreenState extends State<MapScreen> {
                     final progress = controller.progressFor(entry.id);
                     final accessible = controller.canAccessLevel(entry.id);
                     final isCurrent = entry.id == current;
+                    final isTutorialLevel =
+                        controller.hasActiveTutorial &&
+                        tutorial?.levelId == entry.id;
                     final semanticLabel = !accessible
                         ? t('map.levelLocked', {'level': entry.levelNumber})
                         : progress.completed
@@ -154,15 +176,34 @@ class _MapScreenState extends State<MapScreen> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(16),
                           onTap: accessible
-                              ? () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => GameScreen(
-                                      controller: controller,
+                              ? () {
+                                  if (tutorial?.levelId == entry.id &&
+                                      tutorial?.phase ==
+                                          TutorialPhase.courseMap) {
+                                    controller.setTutorialPhase(
+                                      TutorialPhase.gameUi,
                                       levelId: entry.id,
-                                      replay: progress.completed,
+                                    );
+                                  }
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => GameScreen(
+                                        controller: controller,
+                                        levelId: entry.id,
+                                        replay:
+                                            progress.completed &&
+                                            !isTutorialLevel,
+                                        returnContext: GameReturnContext(
+                                          source: isTutorialLevel
+                                              ? GameEntrySource.tutorial
+                                              : GameEntrySource.map,
+                                          curriculumId: widget.curriculumId,
+                                          trackId: _trackId,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                )
+                                  );
+                                }
                               : null,
                           child: Container(
                             constraints: const BoxConstraints(

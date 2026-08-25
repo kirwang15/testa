@@ -2,13 +2,16 @@
 
 import { ArrowRight, Map, RotateCcw, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
+import { buildLevelHref } from "@/lib/level-navigation";
 
 type CompletionActionsProps = {
   stars: number;
   nextLevelId?: string;
   onReplay: () => void;
   replayDisabled?: boolean;
+  returnTo: string;
+  onFinishTutorial?: () => void;
 };
 
 const actionClass =
@@ -18,9 +21,11 @@ export function CompletionActions({
   stars,
   nextLevelId,
   onReplay,
-  replayDisabled = false
+  replayDisabled = false,
+  returnTo,
+  onFinishTutorial
 }: CompletionActionsProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   return (
     <section className="mt-4 rounded-2xl border border-emerald-100/25 bg-emerald-900/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]">
       <div className="flex items-center justify-between gap-3">
@@ -42,7 +47,8 @@ export function CompletionActions({
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {nextLevelId ? (
           <Link
-            href={`/levels/${nextLevelId}`}
+            href={buildLevelHref(nextLevelId, returnTo)}
+            replace
             className={`${actionClass} bg-emerald-500 text-[#10251e]`}
           >
             {t("completion.next")}
@@ -62,6 +68,15 @@ export function CompletionActions({
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
           {t("completion.replay")}
         </button>
+        {onFinishTutorial ? (
+          <button
+            type="button"
+            onClick={onFinishTutorial}
+            className={`${actionClass} bg-sun text-[#2a1208] sm:col-span-2`}
+          >
+            {t("tutorial.finish")}
+          </button>
+        ) : null}
       </div>
     </section>
   );

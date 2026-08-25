@@ -26,8 +26,11 @@ export type AssessmentItem = {
 };
 
 export type AssessmentBank = {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  policyVersion: 2;
   bankVersion: string;
+  generatorVersion: string;
+  sourceHash: string;
   estimateRange: { min: number; max: number };
   calibrationStatus: "proxy-v1";
   anchorProfiles: Array<{
@@ -37,12 +40,26 @@ export type AssessmentBank = {
     priorMeanTheta: number;
     priorStandardDeviation: number;
   }>;
+  broadPhaseRules: {
+    totalItems: number;
+    realItems: number;
+    pseudowordItems: number;
+    realBands: number[];
+    pseudowordSlots: number[];
+    pseudowordBands: number[];
+  };
   stoppingRules: {
     minimumScoringItems: number;
     maximumScoringItems: number;
     wrapUpItems: number;
     minimumMultipleChoiceItems: number;
+    minimumBasicItems: number;
+    minimumAdvancedItems: number;
+    minimumTargetItems: number;
     standardErrorThreshold: number;
+    relativeEstimateChangeThreshold: number;
+    stableEstimateChanges: number;
+    informationThreshold: number;
   };
   items: AssessmentItem[];
 };
@@ -82,6 +99,7 @@ export type AssessmentSession = {
   estimateUpper: number;
   reliability: AssessmentReliability;
   coverage: { basic: number; advanced: number; target: number };
+  estimateHistory: number[];
   startedAt: string;
   durationMs: number;
 };
@@ -95,12 +113,10 @@ export type AssessmentQuestion = {
 };
 export {
   loadAssessmentState,
+  reconcileAssessmentState,
   saveAssessmentState,
   type AssessmentStoredState
 } from "./web-assessment-storage";
-
-const BROAD_REAL_BANDS = [1, 4, 7, 10, 13, 16, 18, 20];
-const BROAD_PSEUDO_SLOTS = new Set([3, 8]);
 
 export async function loadAssessmentBank(signal?: AbortSignal) {
   const response = await fetch("/content/assessment/bank-v1.json", {
@@ -110,8 +126,28 @@ export async function loadAssessmentBank(signal?: AbortSignal) {
   if (!response.ok) throw new Error(`Assessment bank unavailable (${response.status})`);
   const candidate = (await response.json()) as AssessmentBank;
   if (
-    candidate.schemaVersion !== 1 ||
+    candidate.schemaVersion !== 2 ||
+    candidate.policyVersion !== 2 ||
+    !candidate.bankVersion.startsWith("assessment-proxy-v2-") ||
+    candidate.generatorVersion !== "assessment-bank-generator-v2" ||
+    !/^[a-f0-9]{64}$/.test(candidate.sourceHash) ||
+    candidate.bankVersion !==
+      `assessment-proxy-v2-${candidate.sourceHash.slice(0, 16)}` ||
     candidate.calibrationStatus !== "proxy-v1" ||
+    candidate.broadPhaseRules.totalItems !== 20 ||
+    candidate.broadPhaseRules.realItems !== 16 ||
+    candidate.broadPhaseRules.pseudowordItems !== 4 ||
+    candidate.stoppingRules.minimumScoringItems !== 48 ||
+    candidate.stoppingRules.maximumScoringItems !== 76 ||
+    candidate.stoppingRules.wrapUpItems !== 4 ||
+    candidate.stoppingRules.minimumMultipleChoiceItems !== 12 ||
+    candidate.stoppingRules.minimumBasicItems !== 4 ||
+    candidate.stoppingRules.minimumAdvancedItems !== 4 ||
+    candidate.stoppingRules.minimumTargetItems !== 4 ||
+    candidate.stoppingRules.standardErrorThreshold !== 0.32 ||
+    candidate.stoppingRules.relativeEstimateChangeThreshold !== 0.03 ||
+    candidate.stoppingRules.stableEstimateChanges !== 6 ||
+    candidate.stoppingRules.informationThreshold !== 0.08 ||
     candidate.items.length !== 1440 ||
     candidate.items.filter((item) => item.itemType === "realWord").length !== 1200 ||
     candidate.items.filter((item) => item.itemType === "pseudoword").length !== 240
@@ -121,8 +157,12 @@ export async function loadAssessmentBank(signal?: AbortSignal) {
   return candidate;
 }
 
-export function startAssessment(bank: AssessmentBank, anchor: AssessmentAnchor): AssessmentSession {
-  const startedAt = new Date();
+export function startAssessment(
+  bank: AssessmentBank,
+  anchor: AssessmentAnchor,
+  options: { seed?: number; startedAt?: Date } = {}
+): AssessmentSession {
+  const startedAt = options.startedAt ?? new Date();
   const profile = bank.anchorProfiles.find((entry) => entry.id === anchor);
   if (!profile) throw new Error(`Unknown assessment anchor: ${anchor}`);
   const estimate = estimateForTheta(bank, profile.priorMeanTheta);
@@ -135,7 +175,7 @@ export function startAssessment(bank: AssessmentBank, anchor: AssessmentAnchor):
     sessionId: `assessment-${startedAt.getTime()}`,
     selectedAnchor: anchor,
     bankVersion: bank.bankVersion,
-    seed: startedAt.getTime(),
+    seed: options.seed ?? startedAt.getTime(),
     phase: "broad",
     responses: [],
     theta: profile.priorMeanTheta,
@@ -145,6 +185,7 @@ export function startAssessment(bank: AssessmentBank, anchor: AssessmentAnchor):
     estimateUpper,
     reliability: "good",
     coverage: { basic: 0, advanced: 0, target: 0 },
+    estimateHistory: [estimate],
     startedAt: startedAt.toISOString(),
     durationMs: 0
   };
@@ -164,14 +205,23 @@ export function nextAssessmentQuestion(
 
   if (session.phase === "broad") {
     const slot = session.responses.filter((response) => response.phase === "broad").length;
-    const pseudo = BROAD_PSEUDO_SLOTS.has(slot);
-    const realOrdinal = slot - [...BROAD_PSEUDO_SLOTS].filter((value) => value < slot).length;
+    if (slot < 0 || slot >= bank.broadPhaseRules.totalItems) {
+      throw new Error("Broad phase is outside its configured policy");
+    }
+    const pseudoOrdinal = bank.broadPhaseRules.pseudowordSlots.indexOf(slot);
+    const pseudo = pseudoOrdinal >= 0;
+    const realOrdinal = slot - bank.broadPhaseRules.pseudowordSlots.filter(
+      (value) => value < slot
+    ).length;
     item = pickItem(
       bank,
       pseudo ? "pseudoword" : "realWord",
-      pseudo ? (slot === 3 ? 8 : 18) : BROAD_REAL_BANDS[realOrdinal],
+      pseudo
+        ? bank.broadPhaseRules.pseudowordBands[pseudoOrdinal]
+        : bank.broadPhaseRules.realBands[realOrdinal],
       usedIds,
-      session.seed + slot
+      session.seed,
+      slot
     );
   } else if (session.phase === "adaptive") {
     const adaptiveIndex = session.responses.filter((response) => response.phase === "adaptive").length;
@@ -198,12 +248,28 @@ export function nextAssessmentQuestion(
         }
       }
     }
-    const preferredBand = Math.max(1, Math.min(20, Math.ceil(session.estimate / 1000)));
-    item = pickItem(bank, "realWord", preferredBand, usedIds, session.seed + 100 + adaptiveIndex);
+    const quota = nextCoverageQuota(bank, session);
+    const preferredBand = quota?.preferredBand ?? bandForEstimate(session.estimate);
+    item = pickItem(
+      bank,
+      "realWord",
+      preferredBand,
+      usedIds,
+      session.seed,
+      100 + adaptiveIndex,
+      quota?.predicate
+    );
   } else {
     const wrapIndex = session.responses.filter((response) => response.phase === "wrapUp").length;
     const preferredBand = Math.max(1, Math.min(20, Math.round(session.estimate / 1000) - 3));
-    item = pickItem(bank, "realWord", preferredBand, usedIds, session.seed + 500 + wrapIndex);
+    item = pickItem(
+      bank,
+      "realWord",
+      preferredBand,
+      usedIds,
+      session.seed,
+      500 + wrapIndex
+    );
   }
 
   return questionFor(session, item, type, verifiesResponseIndex);
@@ -238,6 +304,18 @@ export function submitAssessmentAnswer(
   const expected = nextAssessmentQuestion(bank, session);
   if (expected.questionId !== question.questionId) throw new Error("Assessment question is stale");
   const skipped = answer.skipped === true;
+  if (!skipped && question.type === "yesNo" && typeof answer.recognized !== "boolean") {
+    throw new Error("Yes/no assessment answer is missing");
+  }
+  if (
+    !skipped &&
+    question.type === "multipleChoice" &&
+    (!Number.isInteger(answer.selectedOptionIndex) ||
+      answer.selectedOptionIndex! < 0 ||
+      answer.selectedOptionIndex! >= question.item.options.length)
+  ) {
+    throw new Error("Multiple-choice assessment answer is out of range");
+  }
   const correct = skipped
     ? false
     : question.type === "yesNo"
@@ -286,14 +364,28 @@ export function submitAssessmentAnswer(
   const multipleChoiceCount = responses.filter(
     (response) => response.scored && response.questionType === "multipleChoice"
   ).length;
+  const estimateHistory = [...(session.estimateHistory ?? [session.estimate])];
+  const latest = responses.at(-1)!;
+  if (
+    latest.scored &&
+    latest.itemType === "realWord" &&
+    latest.phase !== "wrapUp" &&
+    !latest.lowEffort
+  ) {
+    estimateHistory.push(posterior.estimate);
+  }
   let phase = session.phase;
-  if (phase === "broad" && scoringScreens >= 10) phase = "adaptive";
+  if (phase === "broad" && scoringScreens >= bank.broadPhaseRules.totalItems) phase = "adaptive";
   else if (phase === "adaptive") {
     const reachedMaximum = scoringScreens >= bank.stoppingRules.maximumScoringItems;
     const converged =
       scoredCount >= bank.stoppingRules.minimumScoringItems &&
       multipleChoiceCount >= bank.stoppingRules.minimumMultipleChoiceItems &&
-      posterior.standardError <= Math.max(0.55, bank.stoppingRules.standardErrorThreshold);
+      hasCoverageQuotas(bank, responses, session.selectedAnchor) &&
+      posterior.standardError <= bank.stoppingRules.standardErrorThreshold &&
+      hasStableEstimate(bank, estimateHistory) &&
+      nextExpectedInformationGain(bank, session, responses, posterior) <
+        bank.stoppingRules.informationThreshold;
     if (reachedMaximum || converged) phase = "wrapUp";
   } else if (
     phase === "wrapUp" &&
@@ -311,6 +403,7 @@ export function submitAssessmentAnswer(
     ...posterior,
     reliability,
     coverage: coverageFor(responses, session.selectedAnchor),
+    estimateHistory,
     durationMs: session.durationMs + Math.max(0, answer.responseTimeMs)
   };
   return { session: nextSession, showCarefulWarning };
@@ -321,7 +414,9 @@ function pickItem(
   kind: AssessmentItem["itemType"],
   preferredBand: number,
   usedIds: Set<string>,
-  salt: number
+  seed: number,
+  salt: number,
+  predicate?: (item: AssessmentItem) => boolean
 ) {
   for (let distance = 0; distance < 20; distance += 1) {
     const bands = new Set([preferredBand - distance, preferredBand + distance]);
@@ -330,16 +425,20 @@ function pickItem(
         (item) =>
           item.itemType === kind &&
           bands.has(item.frequencyBand) &&
-          !usedIds.has(item.itemId)
+          !usedIds.has(item.itemId) &&
+          (!predicate || predicate(item))
       )
-      .sort((a, b) => stableHash(a.itemId, salt) - stableHash(b.itemId, salt));
+      .sort((a, b) => stableHash(a.itemId, seed, salt) - stableHash(b.itemId, seed, salt));
     if (candidates[0]) return candidates[0];
+  }
+  if (predicate) {
+    return pickItem(bank, kind, preferredBand, usedIds, seed, salt);
   }
   throw new Error(`No unused ${kind} assessment item`);
 }
 
-function stableHash(value: string, salt: number) {
-  let hash = (0x811c9dc5 ^ salt) >>> 0;
+function stableHash(value: string, seed: number, salt: number) {
+  let hash = (0x811c9dc5 ^ seed ^ salt) >>> 0;
   for (const character of value) {
     hash = Math.imul(hash ^ character.charCodeAt(0), 0x01000193) >>> 0;
   }
@@ -398,7 +497,19 @@ function confidenceBounds(bank: AssessmentBank, theta: number, standardError: nu
   ] as const;
 }
 
-function matchesTarget(response: AssessmentResponse, anchor: AssessmentAnchor) {
+function bandForEstimate(estimate: number) {
+  return Math.max(1, Math.min(20, Math.ceil(estimate / 1000)));
+}
+
+function targetBand(bank: AssessmentBank, anchor: AssessmentAnchor) {
+  const profile = bank.anchorProfiles.find((entry) => entry.id === anchor)!;
+  return bandForEstimate(Math.round((profile.estimateMin + profile.estimateMax) / 2));
+}
+
+function matchesTarget(
+  response: Pick<AssessmentResponse, "frequencyBand" | "targetTags">,
+  anchor: AssessmentAnchor
+) {
   if (anchor === "primarySchool") return response.frequencyBand <= 3;
   if (anchor === "middleSchool") return response.frequencyBand >= 3 && response.frequencyBand <= 7;
   if (anchor === "highSchool") return response.frequencyBand >= 5 && response.frequencyBand <= 10;
@@ -421,9 +532,117 @@ function coverageFor(responses: AssessmentResponse[], anchor: AssessmentAnchor) 
   };
 }
 
+function scoredRealResponses(responses: AssessmentResponse[]) {
+  return responses.filter(
+    (response) =>
+      response.scored &&
+      !response.lowEffort &&
+      response.itemType === "realWord" &&
+      response.phase !== "wrapUp"
+  );
+}
+
+function coverageCounts(responses: AssessmentResponse[], anchor: AssessmentAnchor) {
+  const real = scoredRealResponses(responses);
+  return {
+    basic: real.filter((response) => response.frequencyBand <= 7).length,
+    advanced: real.filter(
+      (response) => response.frequencyBand >= 8 && response.frequencyBand <= 14
+    ).length,
+    target: real.filter((response) => matchesTarget(response, anchor)).length
+  };
+}
+
+function nextCoverageQuota(bank: AssessmentBank, session: AssessmentSession) {
+  const counts = coverageCounts(session.responses, session.selectedAnchor);
+  if (counts.basic < bank.stoppingRules.minimumBasicItems) {
+    return {
+      preferredBand: 5,
+      predicate: (item: AssessmentItem) => item.frequencyBand <= 7
+    };
+  }
+  if (counts.advanced < bank.stoppingRules.minimumAdvancedItems) {
+    return {
+      preferredBand: 11,
+      predicate: (item: AssessmentItem) =>
+        item.frequencyBand >= 8 && item.frequencyBand <= 14
+    };
+  }
+  if (counts.target < bank.stoppingRules.minimumTargetItems) {
+    return {
+      preferredBand: targetBand(bank, session.selectedAnchor),
+      predicate: (item: AssessmentItem) =>
+        matchesTarget(item, session.selectedAnchor)
+    };
+  }
+  return undefined;
+}
+
+function hasCoverageQuotas(
+  bank: AssessmentBank,
+  responses: AssessmentResponse[],
+  anchor: AssessmentAnchor
+) {
+  const counts = coverageCounts(responses, anchor);
+  return (
+    counts.basic >= bank.stoppingRules.minimumBasicItems &&
+    counts.advanced >= bank.stoppingRules.minimumAdvancedItems &&
+    counts.target >= bank.stoppingRules.minimumTargetItems
+  );
+}
+
+function hasStableEstimate(bank: AssessmentBank, history: number[]) {
+  const changeCount = bank.stoppingRules.stableEstimateChanges;
+  if (history.length < changeCount + 1) return false;
+  const tail = history.slice(-(changeCount + 1));
+  for (let index = 1; index < tail.length; index += 1) {
+    const denominator = Math.max(100, tail[index - 1]);
+    const relativeChange = Math.abs(tail[index] - tail[index - 1]) / denominator;
+    if (relativeChange >= bank.stoppingRules.relativeEstimateChangeThreshold) return false;
+  }
+  return true;
+}
+
+function itemInformation(theta: number, item: AssessmentItem, guessing: number) {
+  const logistic = 1 / (1 + Math.exp(-item.discrimination * (theta - item.difficulty)));
+  const probability = guessing + (1 - guessing) * logistic;
+  const derivative = item.discrimination * (1 - guessing) * logistic * (1 - logistic);
+  return (derivative * derivative) / Math.max(1e-9, probability * (1 - probability));
+}
+
+function nextExpectedInformationGain(
+  bank: AssessmentBank,
+  session: AssessmentSession,
+  responses: AssessmentResponse[],
+  posterior: { theta: number; standardError: number; estimate: number }
+) {
+  const usedIds = new Set(responses.map((response) => response.itemId));
+  const scoringScreens = responses.filter((response) => response.phase !== "wrapUp").length;
+  const candidate = pickItem(
+    bank,
+    "realWord",
+    bandForEstimate(posterior.estimate),
+    usedIds,
+    session.seed,
+    900 + scoringScreens
+  );
+  const nextAdaptiveIndex = responses.filter(
+    (response) => response.phase === "adaptive"
+  ).length;
+  const guessing = nextAdaptiveIndex % 2 === 0 ? candidate.guessing : 0;
+  return (
+    itemInformation(posterior.theta, candidate, guessing) *
+    posterior.standardError *
+    posterior.standardError
+  );
+}
+
 function reliabilityFor(bank: AssessmentBank, responses: AssessmentResponse[]): AssessmentReliability {
   const pseudoFalsePositives = responses.filter(
     (response) => response.scored && response.itemType === "pseudoword" && response.recognized
+  ).length;
+  const pseudowordsPresented = responses.filter(
+    (response) => response.scored && response.itemType === "pseudoword"
   ).length;
   const lowEffort = responses.filter((response) => response.lowEffort).length;
   const contradictions = responses.filter(
@@ -433,7 +652,7 @@ function reliabilityFor(bank: AssessmentBank, responses: AssessmentResponse[]): 
   const scored = responses.filter((response) => response.scored).length;
   if (
     (scoringScreens >= bank.stoppingRules.maximumScoringItems && scored < bank.stoppingRules.minimumScoringItems) ||
-    pseudoFalsePositives >= 2 ||
+    (pseudowordsPresented > 0 && pseudoFalsePositives === pseudowordsPresented) ||
     lowEffort >= 3 ||
     contradictions >= 2
   ) return "invalid";

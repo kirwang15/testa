@@ -4,6 +4,76 @@ enum UiLanguage { english, chinese }
 
 enum AgeBand { allAges, sevenToNine, tenToTwelve, thirteenToFifteen }
 
+enum TutorialPhase {
+  intro,
+  home,
+  courseMap,
+  gameUi,
+  firstWordDetail,
+  levelComplete,
+  completed,
+}
+
+class TutorialProgress {
+  const TutorialProgress({
+    required this.phase,
+    required this.levelId,
+    this.version = currentVersion,
+  });
+
+  static const currentVersion = 1;
+  static const defaultLevelId = 'nce-1997-b1-level-001';
+
+  const TutorialProgress.newPlayer()
+    : phase = TutorialPhase.intro,
+      levelId = defaultLevelId,
+      version = currentVersion;
+
+  const TutorialProgress.completed()
+    : phase = TutorialPhase.completed,
+      levelId = defaultLevelId,
+      version = currentVersion;
+
+  final TutorialPhase phase;
+  final String levelId;
+  final int version;
+
+  bool get isCompleted => phase == TutorialPhase.completed;
+
+  TutorialProgress copyWith({TutorialPhase? phase, String? levelId}) =>
+      TutorialProgress(
+        phase: phase ?? this.phase,
+        levelId: levelId ?? this.levelId,
+        version: currentVersion,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'version': version,
+    'phase': phase.name,
+    'levelId': levelId,
+  };
+
+  factory TutorialProgress.fromJson(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      return const TutorialProgress.completed();
+    }
+    if ((value['version'] as num?)?.toInt() != currentVersion) {
+      return const TutorialProgress.completed();
+    }
+    final phaseName = value['phase'] as String?;
+    final matches = TutorialPhase.values.where(
+      (candidate) => candidate.name == phaseName,
+    );
+    if (matches.length != 1) return const TutorialProgress.completed();
+    final phase = matches.single;
+    final levelId = (value['levelId'] as String?)?.trim();
+    return TutorialProgress(
+      phase: phase,
+      levelId: levelId?.isNotEmpty == true ? levelId! : defaultLevelId,
+    );
+  }
+}
+
 extension UiLanguageValue on UiLanguage {
   String get value => this == UiLanguage.english ? 'en' : 'zh-CN';
 
@@ -156,6 +226,8 @@ class PlayerProfile {
     required this.createdAt,
     this.activeCurriculumId = 'nce-1997',
     this.hasSeenGettingStarted = true,
+    this.tutorialProgress = const TutorialProgress.completed(),
+    this.favoriteWordIds = const <String>{},
     this.coins = 0,
     this.levels = const {},
     this.review = const {},
@@ -172,6 +244,8 @@ class PlayerProfile {
   final DateTime createdAt;
   final String activeCurriculumId;
   final bool hasSeenGettingStarted;
+  final TutorialProgress tutorialProgress;
+  final Set<String> favoriteWordIds;
   final int coins;
   final Map<String, LevelProgress> levels;
   final Map<String, ReviewDebt> review;
@@ -186,6 +260,8 @@ class PlayerProfile {
     UiLanguage? clueLanguage,
     String? activeCurriculumId,
     bool? hasSeenGettingStarted,
+    TutorialProgress? tutorialProgress,
+    Set<String>? favoriteWordIds,
     int? coins,
     Map<String, LevelProgress>? levels,
     Map<String, ReviewDebt>? review,
@@ -202,6 +278,8 @@ class PlayerProfile {
     createdAt: createdAt,
     activeCurriculumId: activeCurriculumId ?? this.activeCurriculumId,
     hasSeenGettingStarted: hasSeenGettingStarted ?? this.hasSeenGettingStarted,
+    tutorialProgress: tutorialProgress ?? this.tutorialProgress,
+    favoriteWordIds: favoriteWordIds ?? this.favoriteWordIds,
     coins: coins ?? this.coins,
     levels: levels ?? this.levels,
     review: review ?? this.review,
@@ -221,6 +299,8 @@ class PlayerProfile {
     'createdAt': createdAt.toUtc().toIso8601String(),
     'activeCurriculumId': activeCurriculumId,
     'hasSeenGettingStarted': hasSeenGettingStarted,
+    'tutorialProgress': tutorialProgress.toJson(),
+    'favoriteWordIds': favoriteWordIds.toList()..sort(),
     'coins': coins,
     'levels': levels.map((key, value) => MapEntry(key, value.toJson())),
     'review': review.map((key, value) => MapEntry(key, value.toJson())),
@@ -255,6 +335,11 @@ class PlayerProfile {
       hasSeenGettingStarted: json.containsKey('hasSeenGettingStarted')
           ? json['hasSeenGettingStarted'] == true
           : true,
+      tutorialProgress: TutorialProgress.fromJson(json['tutorialProgress']),
+      favoriteWordIds:
+          (json['favoriteWordIds'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toSet(),
       coins: (json['coins'] as num? ?? 0).toInt().clamp(0, 999999999),
       levels: rawLevels.map(
         (key, value) => MapEntry(

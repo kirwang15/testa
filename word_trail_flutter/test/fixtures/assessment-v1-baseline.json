@@ -1,0 +1,11 @@
+{
+  "sourceCommit": "c57c1551e1d8171464754d1aefcb538411b35fdc",
+  "bankVersion": "assessment-proxy-v1-590f3d39e0828781",
+  "bankSha256": "b6461d92cfb265aa0f5e9515466028d8d043b7cd7854cfaa3dfa93e0489cd079",
+  "engineSha256": "f6a6aa62b86f9ed9007dfdad8f126b96f461193410363c688719e43373c03f1f",
+  "abilities": [1000, 2800, 4600, 6400, 8200, 10000, 11800, 13600, 15400, 17200, 19000],
+  "seedsPerAbility": 100,
+  "seedFormula": "seed + ability * 1000",
+  "responseGenerator": "dart:math Random(seed), one nextDouble per item, 1PL/4PL proxy probability",
+  "medianStandardError": 0.435902281548
+}

@@ -23,8 +23,6 @@ class VocabularyAssessmentEngine {
   final Set<String> previouslyExposedLemmaIds;
   final Map<String, AssessmentItem> _itemsById;
 
-  static const _broadRealBands = <int>[1, 4, 7, 10, 13, 16, 18, 20];
-  static const _broadPseudowordSlots = <int>{3, 8};
   static const _thetaMinimum = -6.0;
   static const _thetaMaximum = 6.0;
   static const _thetaStep = 0.1;
@@ -134,7 +132,8 @@ class VocabularyAssessmentEngine {
     final scoringStageCount = responses
         .where((item) => item.phase != AssessmentPhase.wrapUp)
         .length;
-    if (session.phase == AssessmentPhase.broad && scoringStageCount >= 10) {
+    if (session.phase == AssessmentPhase.broad &&
+        scoringStageCount >= bank.broadPhaseRules.totalItems) {
       nextPhase = AssessmentPhase.adaptive;
     } else if (session.phase == AssessmentPhase.adaptive) {
       final provisional = _sessionFrom(
@@ -175,17 +174,23 @@ class VocabularyAssessmentEngine {
   }
 
   AssessmentQuestion _broadQuestion(AssessmentSession session) {
-    final slot = session.scoringStageResponses.length;
-    if (slot < 0 || slot >= 10) {
-      throw StateError('Broad phase must contain exactly ten questions');
+    final rules = bank.broadPhaseRules;
+    final slot = session.responses
+        .where((response) => response.phase == AssessmentPhase.broad)
+        .length;
+    if (slot < 0 || slot >= rules.totalItems) {
+      throw StateError(
+        'Broad phase must contain exactly ${rules.totalItems} questions',
+      );
     }
-    final isPseudoword = _broadPseudowordSlots.contains(slot);
+    final pseudowordOrdinal = rules.pseudowordSlots.indexOf(slot);
+    final isPseudoword = pseudowordOrdinal >= 0;
     final realOrdinal =
         slot -
-        _broadPseudowordSlots.where((pseudoSlot) => pseudoSlot < slot).length;
+        rules.pseudowordSlots.where((pseudoSlot) => pseudoSlot < slot).length;
     final band = isPseudoword
-        ? (slot == 3 ? 8 : 18)
-        : _broadRealBands[realOrdinal];
+        ? rules.pseudowordBands[pseudowordOrdinal]
+        : rules.realBands[realOrdinal];
     final item = _pickItem(
       kind: isPseudoword
           ? AssessmentItemKind.pseudoword
@@ -203,7 +208,9 @@ class VocabularyAssessmentEngine {
   }
 
   AssessmentQuestion _adaptiveQuestion(AssessmentSession session) {
-    final adaptiveIndex = session.scoringStageResponses.length - 10;
+    final adaptiveIndex = session.responses
+        .where((response) => response.phase == AssessmentPhase.adaptive)
+        .length;
     final type = adaptiveIndex.isEven
         ? AssessmentQuestionType.multipleChoice
         : AssessmentQuestionType.yesNo;
@@ -221,26 +228,14 @@ class VocabularyAssessmentEngine {
       }
     }
 
-    final forcedBand = switch (adaptiveIndex) {
-      0 => 5,
-      1 => 11,
-      2 => _targetBand(session.selectedAnchor),
-      _ => null,
-    };
-    final preferredBand = forcedBand ?? _bandForEstimate(session.estimate);
-    final needsTargetItem = _targetResponseCount(session) < 2;
+    final quota = _nextCoverageQuota(session);
+    final preferredBand = quota?.$1 ?? _bandForEstimate(session.estimate);
     final item = _pickItem(
       kind: AssessmentItemKind.realWord,
       preferredBand: preferredBand,
       usedItemIds: session.usedItemIds,
       salt: 100 + adaptiveIndex,
-      predicate: needsTargetItem
-          ? (candidate) => _matchesTarget(
-              candidate.frequencyBand,
-              candidate.targetTags,
-              session.selectedAnchor,
-            )
-          : null,
+      predicate: quota?.$2,
     );
     return _question(
       session: session,
@@ -276,7 +271,7 @@ class VocabularyAssessmentEngine {
   }) {
     final ordinal = session.responses.length + 1;
     return AssessmentQuestion(
-      questionId: 'assessment-question-$ordinal-${item.itemId}-${type.name}',
+      questionId: '$ordinal-${item.itemId}-${type.name}',
       item: item,
       type: type,
       phase: phase,
@@ -328,12 +323,19 @@ class VocabularyAssessmentEngine {
           )
           .toList();
       if (candidates.isNotEmpty) {
-        candidates.sort(
-          (left, right) => _stableScore(
+        candidates.sort((left, right) {
+          final leftExposure = previouslyExposedLemmaIds.contains(left.lemmaId)
+              ? 1
+              : 0;
+          final rightExposure =
+              previouslyExposedLemmaIds.contains(right.lemmaId) ? 1 : 0;
+          final exposureComparison = leftExposure.compareTo(rightExposure);
+          if (exposureComparison != 0) return exposureComparison;
+          return _stableScore(
             left.itemId,
             salt,
-          ).compareTo(_stableScore(right.itemId, salt)),
-        );
+          ).compareTo(_stableScore(right.itemId, salt));
+        });
         return candidates.first;
       }
     }
@@ -349,9 +351,9 @@ class VocabularyAssessmentEngine {
   }
 
   int _stableScore(String value, int salt) {
-    var hash = (0x811c9dc5 ^ seed ^ salt) & 0x7fffffff;
+    var hash = (0x811c9dc5 ^ seed ^ salt) & 0xffffffff;
     for (final unit in value.codeUnits) {
-      hash = ((hash ^ unit) * 0x01000193) & 0x7fffffff;
+      hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
     }
     return hash;
   }
@@ -445,15 +447,20 @@ class VocabularyAssessmentEngine {
       usedItemIds: session.usedItemIds,
       salt: 900 + scoringStageCount,
     );
-    final information = _itemInformation(session.theta, candidate, 0.25);
+    final nextAdaptiveIndex = session.responses
+        .where((response) => response.phase == AssessmentPhase.adaptive)
+        .length;
+    final guessing = nextAdaptiveIndex.isEven ? candidate.guessing : 0.0;
+    final information = _itemInformation(session.theta, candidate, guessing);
     final expectedInformationGain =
         information * session.standardError * session.standardError;
     return expectedInformationGain < rules.informationThreshold;
   }
 
   bool _hasStableEstimate(List<int> history) {
-    if (history.length < 4) return false;
-    final tail = history.sublist(history.length - 4);
+    final changeCount = bank.stoppingRules.stableEstimateChanges;
+    if (history.length < changeCount + 1) return false;
+    final tail = history.sublist(history.length - changeCount - 1);
     for (var index = 1; index < tail.length; index += 1) {
       final denominator = math.max(100, tail[index - 1]);
       final relativeChange =
@@ -467,7 +474,7 @@ class VocabularyAssessmentEngine {
   }
 
   bool _hasCoverageQuotas(AssessmentSession session) {
-    final scored = session.scoredResponses;
+    final scored = _scoredRealResponses(session.responses);
     final basic = scored
         .where((response) => response.frequencyBand <= 7)
         .length;
@@ -477,18 +484,69 @@ class VocabularyAssessmentEngine {
               response.frequencyBand >= 8 && response.frequencyBand <= 14,
         )
         .length;
-    return basic >= 2 && advanced >= 2 && _targetResponseCount(session) >= 2;
+    final rules = bank.stoppingRules;
+    return basic >= rules.minimumBasicItems &&
+        advanced >= rules.minimumAdvancedItems &&
+        _targetResponseCount(session) >= rules.minimumTargetItems;
   }
 
-  int _targetResponseCount(AssessmentSession session) => session.scoredResponses
+  List<AssessmentResponse> _scoredRealResponses(
+    Iterable<AssessmentResponse> responses,
+  ) => responses
       .where(
-        (response) => _matchesTarget(
-          response.frequencyBand,
-          response.targetTags,
+        (response) =>
+            response.scored &&
+            !response.lowEffort &&
+            response.itemKind == AssessmentItemKind.realWord &&
+            response.phase != AssessmentPhase.wrapUp,
+      )
+      .toList(growable: false);
+
+  int _targetResponseCount(AssessmentSession session) =>
+      _scoredRealResponses(session.responses)
+          .where(
+            (response) => _matchesTarget(
+              response.frequencyBand,
+              response.targetTags,
+              session.selectedAnchor,
+            ),
+          )
+          .length;
+
+  (int, bool Function(AssessmentItem))? _nextCoverageQuota(
+    AssessmentSession session,
+  ) {
+    final scored = _scoredRealResponses(session.responses);
+    final basic = scored
+        .where((response) => response.frequencyBand <= 7)
+        .length;
+    if (basic < bank.stoppingRules.minimumBasicItems) {
+      return (5, (item) => item.frequencyBand <= 7);
+    }
+    final advanced = scored
+        .where(
+          (response) =>
+              response.frequencyBand >= 8 && response.frequencyBand <= 14,
+        )
+        .length;
+    if (advanced < bank.stoppingRules.minimumAdvancedItems) {
+      return (
+        11,
+        (item) => item.frequencyBand >= 8 && item.frequencyBand <= 14,
+      );
+    }
+    if (_targetResponseCount(session) < bank.stoppingRules.minimumTargetItems) {
+      return (
+        _targetBand(session.selectedAnchor),
+        (item) => _matchesTarget(
+          item.frequencyBand,
+          item.targetTags,
           session.selectedAnchor,
         ),
-      )
-      .length;
+      );
+    }
+    return null;
+  }
 
   bool _matchesTarget(int band, List<String> tags, AssessmentAnchor anchor) =>
       switch (anchor) {
@@ -503,7 +561,9 @@ class VocabularyAssessmentEngine {
 
   int _targetBand(AssessmentAnchor anchor) {
     final profile = bank.profile(anchor);
-    return _bandForEstimate((profile.estimateMin + profile.estimateMax) ~/ 2);
+    return _bandForEstimate(
+      ((profile.estimateMin + profile.estimateMax) / 2).round(),
+    );
   }
 
   int _bandForEstimate(int estimate) => (estimate / 1000).ceil().clamp(1, 20);
@@ -541,6 +601,9 @@ class VocabularyAssessmentEngine {
               response.recognized == true,
         )
         .length;
+    final pseudowordsPresented = scored
+        .where((response) => response.itemKind == AssessmentItemKind.pseudoword)
+        .length;
     final lowEffortCount = responses
         .where((response) => response.lowEffort)
         .length;
@@ -552,7 +615,8 @@ class VocabularyAssessmentEngine {
         .length;
     if ((scoringStageCount >= bank.stoppingRules.maximumScoringItems &&
             scored.length < bank.stoppingRules.minimumScoringItems) ||
-        pseudowordFalsePositives >= 2 ||
+        (pseudowordsPresented > 0 &&
+            pseudowordFalsePositives == pseudowordsPresented) ||
         lowEffortCount >= 3 ||
         contradictions >= 2) {
       return AssessmentReliability.invalid;

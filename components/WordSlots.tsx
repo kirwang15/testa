@@ -1,14 +1,15 @@
 "use client";
 
-import { Bookmark, CheckCircle2, Languages } from "lucide-react";
+import { Bookmark, CheckCircle2, Languages, Volume2 } from "lucide-react";
 import { getActiveCluePresentation } from "@/lib/clue-presentation";
 import { getCellsForWord, getCellKey } from "@/lib/game";
 import {
   getWordCardPresentation,
   sanitizeLevelPresentationText
 } from "@/lib/word-card-presentation";
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
 import { getRuntimeVocabularyWordById } from "@/lib/content-runtime";
+import { speakEnglishWord } from "@/lib/speech";
 import type {
   ClueLanguage,
   Level,
@@ -27,6 +28,7 @@ type WordSlotsProps = {
   onToggleClueLanguage: () => void;
   onToggleFavorite?: (wordId: string) => void;
   onSelectWord?: (wordId: string) => void;
+  onContinueFromDetail?: () => void;
   mutationDisabled?: boolean;
 };
 
@@ -41,9 +43,10 @@ export function WordSlots({
   onToggleClueLanguage,
   onToggleFavorite,
   onSelectWord,
+  onContinueFromDetail,
   mutationDisabled = false
 }: WordSlotsProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   const solvedCount = progress.completed
     ? level.targetWords.length
     : progress.foundWords.length;
@@ -51,7 +54,8 @@ export function WordSlots({
     sanitizeLevelPresentationText(level, progress, text) ?? "";
   const activeWord =
     level.targetWords.find((word) => word.id === activeWordId) ??
-    level.targetWords.find((word) => !progress.foundWords.includes(word.id));
+    level.targetWords.find((word) => !progress.foundWords.includes(word.id)) ??
+    (progress.completed ? level.targetWords[0] : undefined);
   const activeIndex = activeWord
     ? level.targetWords.findIndex((word) => word.id === activeWord.id)
     : -1;
@@ -110,19 +114,32 @@ export function WordSlots({
               key={word.id}
               type="button"
               onClick={() => onSelectWord?.(word.id)}
-              disabled={solved}
               aria-pressed={selected}
+              aria-label={
+                solved
+                  ? safeText(t("game.solvedClueDetailAria", {
+                      number: index + 1,
+                      direction: t(`game.${word.direction}`),
+                      length: word.word.length
+                    }))
+                  : undefined
+              }
               className={[
                 "focus-ring min-h-11 shrink-0 rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-[0.08em] transition",
-                selected
+                solved
+                    ? `cursor-pointer border-emerald-200/55 bg-emerald-700/60 text-emerald-50 hover:bg-emerald-600/70 ${recentWordId === word.id ? "ring-2 ring-emerald-200/60" : ""}`
+                    : selected
                   ? "border-sky-200/70 bg-sky-500/35 text-white ring-2 ring-sky-300/30"
-                  : solved
-                    ? "border-emerald-200/35 bg-emerald-700/45 text-emerald-50"
                     : "border-amber-100/20 bg-black/25 text-amber-50 hover:bg-black/40"
               ].join(" ")}
             >
               {safeText(t("game.clue", { number: index + 1 }))} · {safeText(t(`game.${word.direction}`))} · {word.word.length}
               {solved ? <CheckCircle2 className="ml-1 inline h-3.5 w-3.5" aria-hidden="true" /> : null}
+              {solved ? (
+                <span className="ml-1 normal-case tracking-normal underline">
+                  {safeText(t("game.viewDetails"))}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -223,6 +240,53 @@ export function WordSlots({
                 {vocabulary.examples[0]}
               </p>
             ) : null}
+            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+              <div className="rounded-lg bg-black/15 p-2">
+                <dt className="text-[10px] font-black uppercase opacity-65">{safeText(t("game.englishMeaning"))}</dt>
+                <dd className="mt-1 font-bold">{safeText(vocabulary?.englishMeaning ?? activeWord.englishMeaning ?? activeWord.clue)}</dd>
+              </div>
+              <div className="rounded-lg bg-black/15 p-2">
+                <dt className="text-[10px] font-black uppercase opacity-65">{safeText(t("game.chineseMeaning"))}</dt>
+                <dd className="mt-1 font-bold">{safeText(vocabulary?.chineseMeaning ?? activeWord.chineseMeaning ?? t("common.noExplanation"))}</dd>
+              </div>
+              <div className="rounded-lg bg-black/15 p-2">
+                <dt className="text-[10px] font-black uppercase opacity-65">{safeText(t("game.wordLevel"))}</dt>
+                <dd className="mt-1 font-bold">{vocabulary?.cefrLevel ? `CEFR ${vocabulary.cefrLevel}` : safeText(t("common.noExplanation"))}</dd>
+              </div>
+              <div className="rounded-lg bg-black/15 p-2">
+                <dt className="text-[10px] font-black uppercase opacity-65">{safeText(t("game.wordSource"))}</dt>
+                <dd className="mt-1 font-bold">
+                  {safeText(
+                    activeWord.source?.type === "ielts"
+                      ? t("game.sourceIelts", { list: activeWord.source.listId, rank: activeWord.source.rank })
+                      : activeWord.source?.type === "kaoyan"
+                        ? t("game.sourceKaoyan", { list: activeWord.source.listId, rank: activeWord.source.rank })
+                        : activeWord.source
+                          ? t("game.source", { book: activeWord.source.book, lesson: activeWord.source.lesson })
+                          : t("common.noExplanation")
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => speakEnglishWord(activeWord.word)}
+                className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/90 px-3 font-black text-[#301006]"
+              >
+                <Volume2 className="h-4 w-4" aria-hidden="true" />
+                {safeText(t("game.listen"))}
+              </button>
+              {!progress.completed ? (
+                <button
+                  type="button"
+                  onClick={onContinueFromDetail}
+                  className="focus-ring min-h-11 rounded-xl border border-white/25 bg-black/25 px-3 font-black text-white"
+                >
+                  {safeText(t("game.continueNextWord"))}
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : (
           <p className="mt-2 rounded-xl border border-current/15 bg-black/15 px-3 py-2 text-sm font-bold leading-6 sm:mt-4 sm:px-4 sm:py-3 sm:text-base sm:leading-7">

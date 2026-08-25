@@ -1,6 +1,6 @@
 "use client";
 
-import { useI18n } from "@/lib/use-i18n";
+import { useLevelI18n } from "@/lib/level-i18n";
 
 export type FeedbackType =
   | "neutral"
@@ -32,7 +32,7 @@ export function FeedbackBanner({
   description,
   sanitizeText = (text) => text
 }: FeedbackBannerProps) {
-  const { t } = useI18n();
+  const { t } = useLevelI18n();
   const feedbackEyebrows: Record<FeedbackType, string> = {
     neutral: t("feedback.neutral"),
     correct: t("feedback.correct"),

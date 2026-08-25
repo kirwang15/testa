@@ -14,17 +14,37 @@ import '../widgets/game/feedback_panel.dart';
 import '../widgets/game/letter_wheel.dart';
 import 'map_screen.dart';
 
+enum GameEntrySource { home, map, review, course, tutorial, direct }
+
+class GameReturnContext {
+  const GameReturnContext({
+    required this.source,
+    this.curriculumId,
+    this.trackId,
+  });
+
+  const GameReturnContext.home() : this(source: GameEntrySource.home);
+  const GameReturnContext.review() : this(source: GameEntrySource.review);
+  const GameReturnContext.direct() : this(source: GameEntrySource.direct);
+
+  final GameEntrySource source;
+  final String? curriculumId;
+  final String? trackId;
+}
+
 class GameScreen extends StatefulWidget {
   const GameScreen({
     super.key,
     required this.controller,
     required this.levelId,
     this.replay = false,
+    this.returnContext = const GameReturnContext.direct(),
   });
 
   final AppController controller;
   final String levelId;
   final bool replay;
+  final GameReturnContext returnContext;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -38,8 +58,12 @@ class _GameScreenState extends State<GameScreen> {
   final Map<String, int> _hintStage = {};
   final Set<String> _mistakeWords = {};
   String? _activeWordId;
+  String? _inspectedWordId;
+  String? _errorWordId;
+  String? _lastRejectedAnswer;
   GameFeedback? _feedback;
   bool _attemptStarted = false;
+  bool _validationInFlight = false;
 
   Future<LevelBundle> _load() async {
     if (!widget.controller.canAccessLevel(widget.levelId)) {
@@ -47,7 +71,13 @@ class _GameScreenState extends State<GameScreen> {
     }
     final bundle = await widget.controller.repository.loadLevel(widget.levelId);
     final progress = widget.controller.progressFor(widget.levelId);
-    if (!widget.replay) _solved.addAll(progress.solvedWordIds);
+    final tutorial = widget.controller.tutorialProgress;
+    final startsTutorialFresh =
+        tutorial?.levelId == widget.levelId &&
+        tutorial?.phase == TutorialPhase.gameUi;
+    if (!widget.replay && !startsTutorialFresh) {
+      _solved.addAll(progress.solvedWordIds);
+    }
     _activeWordId = bundle.level.words
         .firstWhere(
           (word) => !_solved.contains(word.id),
@@ -95,17 +125,37 @@ class _GameScreenState extends State<GameScreen> {
     final t = AppStrings(profile.uiLanguage);
     final level = bundle.level;
     final track = widget.controller.catalog.track(level.trackId);
-    final activeWord = level.words.firstWhere(
+    final answerWord = level.words.firstWhere(
       (word) => word.id == _activeWordId,
     );
+    final displayWord = _inspectedWordId == null
+        ? answerWord
+        : level.words.firstWhere((word) => word.id == _inspectedWordId);
     final progress = widget.controller.progressFor(level.id);
     final complete = _solved.length == level.words.length;
-    final showBeginnerCoach =
-        !widget.replay && widget.controller.completedLevelCount == 0;
-    final beginnerCoachText = _beginnerCoachText(level, activeWord, t);
-    return AppShell(
+    final tutorial = widget.controller.tutorialProgress;
+    final tutorialHere =
+        tutorial != null &&
+        !tutorial.isCompleted &&
+        tutorial.levelId == level.id;
+    final detailMode = _inspectedWordId != null;
+    final tutorialInputLocked =
+        tutorialHere &&
+        tutorial.phase == TutorialPhase.firstWordDetail &&
+        !detailMode;
+    final inputEnabled = !complete && !detailMode && !tutorialInputLocked;
+    final beginnerCoachText = tutorialHere
+        ? _beginnerCoachText(level, answerWord, t, tutorial.phase)
+        : null;
+    final shell = AppShell(
       maxWidth: 1240,
       appBar: AppBar(
+        leading: IconButton(
+          key: const Key('game-exit'),
+          onPressed: () => _leaveGame(context, level),
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: t('common.back'),
+        ),
         title: Text(t.levelLocation(track, level.levelNumber)),
         actions: [
           Padding(
@@ -148,42 +198,56 @@ class _GameScreenState extends State<GameScreen> {
             trackTitle: t.trackTitle(track),
             solved: _solved,
             draft: _draft,
-            activeWordId: activeWord.id,
-            inputLetters: _inputLetters(level, activeWord),
+            activeWordId: displayWord.id,
+            errorWordId: _errorWordId,
+            inputLetters: _inputLetters(level, answerWord),
             progressText: t('game.progress', {
               'done': _solved.length,
               'total': level.words.length,
             }),
-            onCellTap: (point) => _selectPoint(level, point),
-            onLetter: (letter) => _addLetter(level, activeWord, letter),
-            onDelete: () => _deleteLetter(level, activeWord),
-            onClear: () => _clearWord(activeWord),
-            onSubmit: complete ? null : () => _submit(level, activeWord, t),
+            onCellTap: inputEnabled
+                ? (point) => _selectPoint(level, point)
+                : null,
+            onLetter: inputEnabled
+                ? (letter) => _addLetter(level, answerWord, letter, t)
+                : null,
+            onDelete: inputEnabled
+                ? () => _deleteLetter(level, answerWord)
+                : null,
+            onClear: inputEnabled ? () => _clearWord(answerWord) : null,
             t: t,
           );
           final clue = _ClueColumn(
             level: level,
             track: track,
             bundle: bundle,
-            activeWord: activeWord,
+            activeWord: displayWord,
+            detailMode: detailMode,
+            tutorialPhase: tutorialHere ? tutorial.phase : null,
             solved: _solved,
             feedback: _feedback,
             progress: progress,
             t: t,
             clueLanguage: profile.clueLanguage,
             complete: complete,
-            beginnerCoachText: showBeginnerCoach ? beginnerCoachText : null,
-            onSelectWord: (id) => setState(() {
-              _activeWordId = id;
-              _feedback = null;
-            }),
+            beginnerCoachText: beginnerCoachText,
+            onSelectWord: (id) => _selectWord(level, id),
             onToggleLanguage: () => widget.controller.updatePreferences(
               clueLanguage: profile.clueLanguage == UiLanguage.english
                   ? UiLanguage.chinese
                   : UiLanguage.english,
             ),
-            onListen: () => _listen(activeWord, bundle, t, recordHint: false),
-            onHint: () => _useHint(level, activeWord, bundle, t),
+            onListen: () => _listen(displayWord, bundle, t, recordHint: false),
+            onHint: inputEnabled
+                ? () => _useHint(level, answerWord, bundle, t)
+                : null,
+            onContinueAnswer: detailMode
+                ? () => setState(() => _inspectedWordId = null)
+                : null,
+            favorite: widget.controller.isFavorite(displayWord.id),
+            onFavorite: detailMode
+                ? () => widget.controller.toggleFavorite(displayWord.id)
+                : null,
             onReplay: () => _restart(level),
             onMap: () => Navigator.of(context).pushReplacement(
               MaterialPageRoute(
@@ -201,9 +265,19 @@ class _GameScreenState extends State<GameScreen> {
                       builder: (_) => GameScreen(
                         controller: widget.controller,
                         levelId: widget.controller.nextLevelId(level)!,
+                        returnContext: widget.returnContext,
                       ),
                     ),
                   ),
+            onCompleteTutorial:
+                tutorialHere &&
+                    complete &&
+                    tutorial.phase == TutorialPhase.levelComplete
+                ? () {
+                    widget.controller.setTutorialPhase(TutorialPhase.completed);
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  }
+                : null,
           );
           final gameContent = desktop
               ? Row(
@@ -222,13 +296,27 @@ class _GameScreenState extends State<GameScreen> {
         },
       ),
     );
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _leaveGame(context, level);
+      },
+      child: shell,
+    );
   }
 
   String _beginnerCoachText(
     CourseLevel level,
     TargetWord activeWord,
     AppStrings t,
+    TutorialPhase phase,
   ) {
+    if (phase == TutorialPhase.firstWordDetail) {
+      return t('guide.gameOpenDetail');
+    }
+    if (phase == TutorialPhase.levelComplete) {
+      return t('guide.gameFinishLevel');
+    }
     if (_feedback?.type == GameFeedbackType.wrong) {
       return t('guide.gameWrong');
     }
@@ -237,9 +325,47 @@ class _GameScreenState extends State<GameScreen> {
       (point) =>
           _fixedLetter(level, point) != null || _draft.containsKey(point),
     );
-    if (filled) return t('guide.gameCheck');
+    if (filled) return t('guide.gameAutoCheck');
     final hasInput = activeWord.cells.any(_draft.containsKey);
     return t(hasInput ? 'guide.gameTyping' : 'guide.gameStart');
+  }
+
+  void _leaveGame(BuildContext context, CourseLevel level) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    navigator.pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => MapScreen(
+          controller: widget.controller,
+          curriculumId: widget.returnContext.curriculumId ?? level.curriculumId,
+          initialTrackId: widget.returnContext.trackId ?? level.trackId,
+        ),
+      ),
+    );
+  }
+
+  void _selectWord(CourseLevel level, String id) {
+    final solved = _solved.contains(id);
+    setState(() {
+      if (solved) {
+        _inspectedWordId = id;
+      } else {
+        _inspectedWordId = null;
+        _activeWordId = id;
+      }
+      _feedback = null;
+      _errorWordId = null;
+      _lastRejectedAnswer = null;
+    });
+    final tutorial = widget.controller.tutorialProgress;
+    if (solved &&
+        tutorial?.levelId == level.id &&
+        tutorial?.phase == TutorialPhase.firstWordDetail) {
+      widget.controller.setTutorialPhase(TutorialPhase.levelComplete);
+    }
   }
 
   void _selectPoint(CourseLevel level, GridPoint point) {
@@ -253,7 +379,10 @@ class _GameScreenState extends State<GameScreen> {
     );
     setState(() {
       _activeWordId = candidate.id;
+      _inspectedWordId = _solved.contains(candidate.id) ? candidate.id : null;
       _feedback = null;
+      _errorWordId = null;
+      _lastRejectedAnswer = null;
     });
   }
 
@@ -265,13 +394,25 @@ class _GameScreenState extends State<GameScreen> {
     return null;
   }
 
-  void _addLetter(CourseLevel level, TargetWord word, String letter) {
+  void _addLetter(
+    CourseLevel level,
+    TargetWord word,
+    String letter,
+    AppStrings t,
+  ) {
     for (final point in word.cells) {
       if (_fixedLetter(level, point) == null && !_draft.containsKey(point)) {
         setState(() {
           _draft[point] = letter;
           _feedback = null;
+          _errorWordId = null;
+          _lastRejectedAnswer = null;
         });
+        if (_isWordFilled(level, word)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _validateFilledWord(level, word, t);
+          });
+        }
         return;
       }
     }
@@ -283,6 +424,8 @@ class _GameScreenState extends State<GameScreen> {
         setState(() {
           _draft.remove(point);
           _feedback = null;
+          _errorWordId = null;
+          _lastRejectedAnswer = null;
         });
         return;
       }
@@ -294,32 +437,40 @@ class _GameScreenState extends State<GameScreen> {
       _draft.remove(point);
     }
     _feedback = null;
+    _errorWordId = null;
+    _lastRejectedAnswer = null;
   });
 
-  void _submit(CourseLevel level, TargetWord word, AppStrings t) {
+  bool _isWordFilled(CourseLevel level, TargetWord word) => word.cells.every(
+    (point) => _fixedLetter(level, point) != null || _draft.containsKey(point),
+  );
+
+  void _validateFilledWord(CourseLevel level, TargetWord word, AppStrings t) {
+    if (_validationInFlight ||
+        _inspectedWordId != null ||
+        _solved.contains(word.id) ||
+        _activeWordId != word.id ||
+        !_isWordFilled(level, word)) {
+      return;
+    }
     final answer = word.cells
         .map((point) => _fixedLetter(level, point) ?? _draft[point] ?? '')
         .join();
-    if (answer.length != word.length) {
-      setState(
-        () => _feedback = GameFeedback(
-          GameFeedbackType.neutral,
-          t('game.incomplete'),
-          '',
-        ),
-      );
-      return;
-    }
+    if (answer == _lastRejectedAnswer) return;
+    _validationInFlight = true;
     if (answer != word.word) {
+      _lastRejectedAnswer = answer;
       _mistakeWords.add(word.id);
       widget.controller.recordWrong(levelId: level.id, wordId: word.id);
-      setState(
-        () => _feedback = GameFeedback(
+      setState(() {
+        _errorWordId = word.id;
+        _feedback = GameFeedback(
           GameFeedbackType.wrong,
           t('game.wrongTitle'),
           t('game.wrongBody'),
-        ),
-      );
+        );
+      });
+      _validationInFlight = false;
       return;
     }
     widget.controller.recordCorrect(
@@ -329,6 +480,8 @@ class _GameScreenState extends State<GameScreen> {
     );
     setState(() {
       _solved.add(word.id);
+      _errorWordId = null;
+      _lastRejectedAnswer = null;
       for (final point in word.cells) {
         _draft.remove(point);
       }
@@ -350,6 +503,13 @@ class _GameScreenState extends State<GameScreen> {
             .id;
       }
     });
+    final tutorial = widget.controller.tutorialProgress;
+    if (tutorial?.levelId == level.id) {
+      if (tutorial?.phase == TutorialPhase.gameUi) {
+        widget.controller.setTutorialPhase(TutorialPhase.firstWordDetail);
+      }
+    }
+    _validationInFlight = false;
   }
 
   Future<void> _listen(
@@ -410,6 +570,11 @@ class _GameScreenState extends State<GameScreen> {
           '',
         );
       });
+      if (_isWordFilled(level, word)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _validateFilledWord(level, word, t);
+        });
+      }
     }
   }
 
@@ -420,6 +585,9 @@ class _GameScreenState extends State<GameScreen> {
       _hintStage.clear();
       _mistakeWords.clear();
       _activeWordId = level.words.first.id;
+      _inspectedWordId = null;
+      _errorWordId = null;
+      _lastRejectedAnswer = null;
       _feedback = null;
     });
     widget.controller.beginAttempt(level.id);
@@ -445,13 +613,13 @@ class _BoardColumn extends StatelessWidget {
     required this.solved,
     required this.draft,
     required this.activeWordId,
+    required this.errorWordId,
     required this.inputLetters,
     required this.progressText,
     required this.onCellTap,
     required this.onLetter,
     required this.onDelete,
     required this.onClear,
-    required this.onSubmit,
     required this.t,
   });
 
@@ -460,13 +628,13 @@ class _BoardColumn extends StatelessWidget {
   final Set<String> solved;
   final Map<GridPoint, String> draft;
   final String activeWordId;
+  final String? errorWordId;
   final List<String> inputLetters;
   final String progressText;
-  final ValueChanged<GridPoint> onCellTap;
-  final ValueChanged<String> onLetter;
-  final VoidCallback onDelete;
-  final VoidCallback onClear;
-  final VoidCallback? onSubmit;
+  final ValueChanged<GridPoint>? onCellTap;
+  final ValueChanged<String>? onLetter;
+  final VoidCallback? onDelete;
+  final VoidCallback? onClear;
   final AppStrings t;
 
   @override
@@ -493,6 +661,7 @@ class _BoardColumn extends StatelessWidget {
         solvedWordIds: solved,
         draftLetters: draft,
         activeWordId: activeWordId,
+        errorWordId: errorWordId,
         onCellTap: onCellTap,
       ),
       const SizedBox(height: 14),
@@ -519,11 +688,6 @@ class _BoardColumn extends StatelessWidget {
             icon: const Icon(Icons.backspace_outlined),
             label: Text(t('game.delete')),
           ),
-          FilledButton.icon(
-            onPressed: onSubmit,
-            icon: const Icon(Icons.check_rounded),
-            label: Text(t('game.submit')),
-          ),
         ],
       ),
     ],
@@ -536,6 +700,8 @@ class _ClueColumn extends StatelessWidget {
     required this.track,
     required this.bundle,
     required this.activeWord,
+    required this.detailMode,
+    required this.tutorialPhase,
     required this.solved,
     required this.feedback,
     required this.progress,
@@ -547,15 +713,21 @@ class _ClueColumn extends StatelessWidget {
     required this.onToggleLanguage,
     required this.onListen,
     required this.onHint,
+    required this.onContinueAnswer,
+    required this.favorite,
+    required this.onFavorite,
     required this.onReplay,
     required this.onMap,
     required this.onNext,
+    required this.onCompleteTutorial,
   });
 
   final CourseLevel level;
   final CourseTrack track;
   final LevelBundle bundle;
   final TargetWord activeWord;
+  final bool detailMode;
+  final TutorialPhase? tutorialPhase;
   final Set<String> solved;
   final GameFeedback? feedback;
   final LevelProgress progress;
@@ -566,13 +738,18 @@ class _ClueColumn extends StatelessWidget {
   final ValueChanged<String> onSelectWord;
   final VoidCallback onToggleLanguage;
   final VoidCallback onListen;
-  final VoidCallback onHint;
+  final VoidCallback? onHint;
+  final VoidCallback? onContinueAnswer;
+  final bool favorite;
+  final VoidCallback? onFavorite;
   final VoidCallback onReplay;
   final VoidCallback onMap;
   final VoidCallback? onNext;
+  final VoidCallback? onCompleteTutorial;
 
   @override
   Widget build(BuildContext context) {
+    final coachText = beginnerCoachText;
     final clue = clueLanguage == UiLanguage.english
         ? activeWord.englishClue
         : activeWord.chineseClue;
@@ -583,6 +760,45 @@ class _ClueColumn extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (coachText != null) ...[
+            Semantics(
+              liveRegion: true,
+              container: true,
+              label: coachText,
+              child: Container(
+                key: const Key('tutorial-game-coach'),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4B3017),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.amber),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      t('guide.gameTitle'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(coachText),
+                    if (tutorialPhase == TutorialPhase.gameUi) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        t('guide.gameModules'),
+                        style: const TextStyle(
+                          color: Color(0xDFFFE7B0),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Expanded(
@@ -593,23 +809,12 @@ class _ClueColumn extends StatelessWidget {
                       t('game.currentClue'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    Semantics(
-                      liveRegion: beginnerCoachText != null,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        child: Text(
-                          beginnerCoachText ?? t('game.selectClue'),
-                          key: ValueKey(beginnerCoachText),
-                          style: TextStyle(
-                            color: beginnerCoachText == null
-                                ? const Color(0xBFFFE7B0)
-                                : AppColors.amber,
-                            fontSize: 12,
-                            fontWeight: beginnerCoachText == null
-                                ? FontWeight.w600
-                                : FontWeight.w800,
-                          ),
-                        ),
+                    Text(
+                      detailMode ? t('game.detailMode') : t('game.selectClue'),
+                      style: const TextStyle(
+                        color: Color(0xBFFFE7B0),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -641,6 +846,12 @@ class _ClueColumn extends StatelessWidget {
                     height: 44,
                     child: ChoiceChip(
                       selected: activeWord.id == level.words[index].id,
+                      selectedColor: solved.contains(level.words[index].id)
+                          ? const Color(0xFF176B45)
+                          : null,
+                      backgroundColor: solved.contains(level.words[index].id)
+                          ? const Color(0xAA176B45)
+                          : null,
                       avatar: solved.contains(level.words[index].id)
                           ? const Icon(Icons.check_circle_rounded, size: 17)
                           : null,
@@ -692,6 +903,13 @@ class _ClueColumn extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
+                if (activeSolved && detailMode) ...[
+                  Text(
+                    activeWord.word.toLowerCase(),
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 Text(
                   clue,
                   style: const TextStyle(
@@ -718,11 +936,31 @@ class _ClueColumn extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${t('game.englishMeaning')}: ${activeWord.englishClue}',
+                    style: const TextStyle(height: 1.45),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${t('game.chineseMeaning')}: ${activeWord.chineseClue}',
+                    style: const TextStyle(height: 1.45),
+                  ),
                   if (vocabulary.example.isNotEmpty) ...[
                     const SizedBox(height: 5),
-                    Text(
-                      vocabulary.example,
-                      style: const TextStyle(fontStyle: FontStyle.italic),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '${t('game.example')}: ',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          TextSpan(
+                            text: vocabulary.example,
+                            style: const TextStyle(fontStyle: FontStyle.italic),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ],
@@ -742,7 +980,7 @@ class _ClueColumn extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: complete ? null : onHint,
+                  onPressed: onHint,
                   icon: const Icon(Icons.lightbulb_outline_rounded),
                   label: Text(t('game.hint')),
                 ),
@@ -752,6 +990,35 @@ class _ClueColumn extends StatelessWidget {
           if (feedback != null) ...[
             const SizedBox(height: 10),
             FeedbackPanel(feedback: feedback!),
+          ],
+          if (detailMode) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onFavorite,
+                    icon: Icon(
+                      favorite ? Icons.bookmark_rounded : Icons.bookmark_border,
+                    ),
+                    label: Text(
+                      favorite ? t('game.unfavorite') : t('game.favorite'),
+                    ),
+                  ),
+                ),
+                if (onContinueAnswer != null) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: const Key('game-continue-answer'),
+                      onPressed: onContinueAnswer,
+                      icon: const Icon(Icons.arrow_forward_rounded),
+                      label: Text(t('game.continueAnswer')),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ],
           if (complete) ...[
             const SizedBox(height: 12),
@@ -772,6 +1039,27 @@ class _ClueColumn extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
+            if (onCompleteTutorial != null) ...[
+              TrailCard(
+                highlighted: true,
+                child: Column(
+                  children: [
+                    Text(
+                      t('guide.completeModules'),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      key: const Key('tutorial-complete'),
+                      onPressed: onCompleteTutorial,
+                      icon: const Icon(Icons.emoji_events_rounded),
+                      label: Text(t('guide.completeTutorial')),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (onNext != null)
               FilledButton.icon(
                 onPressed: onNext,

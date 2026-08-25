@@ -47,7 +47,10 @@ export default function OnboardingPage() {
 
     updateProfile(
       profile.id,
-      getOnboardingProfilePatch({ nickname, ageBand, interfaceMode })
+      getOnboardingProfilePatch(
+        { nickname, ageBand, interfaceMode },
+        profile.onboardingCompleted
+      )
     );
     router.replace("/");
   };

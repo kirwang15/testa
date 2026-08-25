@@ -15,11 +15,16 @@ import type {
   UiLanguage
 } from "../types/game";
 import { getDefaultContentAccessLevel } from "./content-access";
+import {
+  advanceTutorial,
+  createFreshTutorialProgress,
+  normalizeTutorialProgress
+} from "./tutorial-progress";
 import generatedContentManifest from "../src/content/vocabulary/generated/content-manifest.json";
 
 export const DEFAULT_PROFILE_ID = "local-player";
 export const DEFAULT_PROFILE_CREATED_AT = "1970-01-01T00:00:00.000Z";
-export const PROFILED_PROGRESS_STORAGE_VERSION = 3 as const;
+export const PROFILED_PROGRESS_STORAGE_VERSION = 4 as const;
 export const CURRENT_CONTENT_VERSION = generatedContentManifest.contentVersion;
 
 export class UnsupportedStorageVersionError extends Error {
@@ -85,6 +90,7 @@ export function normalizeLearningPreferences(
 export function createDefaultPlayerProfile(
   overrides: Partial<PlayerProfile> = {}
 ): PlayerProfile {
+  const onboardingCompleted = overrides.onboardingCompleted === true;
   const interfaceMode = INTERFACE_MODES.has(
     overrides.preferences?.interfaceMode as InterfaceMode
   )
@@ -101,6 +107,18 @@ export function createDefaultPlayerProfile(
       ? (overrides.contentAccessLevel as ContentAccessLevel)
       : getDefaultContentAccessLevel(ageBand);
 
+  const normalizedTutorial = overrides.tutorialProgress === undefined
+    ? onboardingCompleted
+      ? advanceTutorial(createFreshTutorialProgress(), "home")
+      : createFreshTutorialProgress()
+    : normalizeTutorialProgress(overrides.tutorialProgress, "fresh");
+  const tutorialProgress =
+    onboardingCompleted &&
+    normalizedTutorial.status === "in-progress" &&
+    normalizedTutorial.phase === "intro"
+      ? advanceTutorial(normalizedTutorial, "home")
+      : normalizedTutorial;
+
   return {
     id: nonEmptyString(overrides.id, DEFAULT_PROFILE_ID),
     nickname: nonEmptyString(overrides.nickname, "Explorer"),
@@ -111,7 +129,8 @@ export function createDefaultPlayerProfile(
     ),
     accent: overrides.accent === "en-GB" ? "en-GB" : "en-US",
     createdAt: nonEmptyString(overrides.createdAt, DEFAULT_PROFILE_CREATED_AT),
-    onboardingCompleted: overrides.onboardingCompleted === true,
+    onboardingCompleted,
+    tutorialProgress,
     contentAccessLevel,
     contentAccessOverride
   };
@@ -135,6 +154,10 @@ export function normalizePlayerProfile(
     accent: value.accent === "en-GB" ? "en-GB" : "en-US",
     createdAt: nonEmptyString(value.createdAt, DEFAULT_PROFILE_CREATED_AT),
     onboardingCompleted: value.onboardingCompleted === true,
+    // A profile that reached persistence before v4 belongs to an existing
+    // learner. Missing tutorial state must never force that learner through a
+    // new first-run flow after upgrade.
+    tutorialProgress: normalizeTutorialProgress(value.tutorialProgress, "legacy"),
     contentAccessLevel: CONTENT_ACCESS_LEVELS.has(
       value.contentAccessLevel as ContentAccessLevel
     )

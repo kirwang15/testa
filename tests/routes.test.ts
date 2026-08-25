@@ -9,6 +9,51 @@ describe("phase one support routes", () => {
     assert.equal(existsSync(resolve("app/settings/page.tsx")), true);
   });
 
+  test("keeps level routes static while carrying a controlled return destination in the client", () => {
+    const levelPage = readFileSync("app/levels/[levelId]/page.tsx", "utf8");
+    const game = readFileSync("components/LevelGame.tsx", "utf8");
+    const completion = readFileSync("components/CompletionActions.tsx", "utf8");
+    assert.doesNotMatch(levelPage, /searchParams/);
+    assert.match(game, /window\.location\.search/);
+    assert.match(game, /sanitizeLevelReturnTo/);
+    assert.match(game, /href=\{returnTo\}/);
+    assert.match(completion, /replace/);
+    assert.match(completion, /buildLevelHref\(nextLevelId, returnTo\)/);
+  });
+
+  test("automatically validates full words and keeps solved details out of answer mode", () => {
+    const game = readFileSync("components/LevelGame.tsx", "utf8");
+    const wheel = readFileSync("components/LetterWheel.tsx", "utf8");
+    const slots = readFileSync("components/WordSlots.tsx", "utf8");
+    assert.match(game, /draftView\.complete/);
+    assert.match(game, /window\.setTimeout\(validateCompletedDraft, 0\)/);
+    assert.match(game, /setInvalidDraftWordId\(activeClue\.id\)/);
+    assert.doesNotMatch(wheel, /onSubmit|game\.submitWord|type=["']submit["']/);
+    assert.match(slots, /onContinueFromDetail/);
+    assert.match(slots, /progress\.completed \? level\.targetWords\[0\]/);
+    assert.doesNotMatch(slots, /disabled=\{solved\}/);
+    assert.match(game, /inspectedWordId !== undefined/);
+    assert.match(game, /requiresTutorialDetail/);
+    assert.match(wheel, /aria-invalid/);
+    assert.match(wheel, /detailInputDisabled/);
+    assert.doesNotMatch(game, /submitCurrentWord/);
+    assert.equal(existsSync(resolve("components/CurrentWord.tsx")), false);
+  });
+
+  test("persists a resumable tutorial and provides a non-mutating settings reference", () => {
+    const home = readFileSync("app/page.tsx", "utf8");
+    const map = readFileSync("app/map/page.tsx", "utf8");
+    const game = readFileSync("components/LevelGame.tsx", "utf8");
+    const settings = readFileSync("app/settings/page.tsx", "utf8");
+    assert.equal(existsSync(resolve("app/tutorial/page.tsx")), true);
+    assert.match(home, /tutorial\.resumeFirstLevel/);
+    assert.match(map, /advanceTutorial\("game-ui"\)/);
+    assert.match(game, /advanceTutorial\("first-word-detail"/);
+    assert.match(game, /advanceTutorial\("level-complete"/);
+    assert.match(game, /advanceTutorial\("completed"/);
+    assert.match(settings, /href="\/tutorial"/);
+  });
+
   test("exposes all three courses and the offline assessment journey on Web", () => {
     const home = readFileSync("app/page.tsx", "utf8");
     const catalog = readFileSync("components/CourseCatalog.tsx", "utf8");
@@ -31,9 +76,10 @@ describe("phase one support routes", () => {
     const assessmentScreen = readFileSync("components/WebAssessmentTest.tsx", "utf8");
     const assessmentResult = readFileSync("components/WebAssessmentResult.tsx", "utf8");
     assert.match(assessmentScreen, /toLocaleLowerCase/);
-    assert.match(assessmentScreen, /t\("correct"\)/);
-    assert.match(assessmentScreen, /bg-emerald-600/);
-    assert.match(assessmentScreen, /bg-red-600/);
+    assert.doesNotMatch(assessmentScreen, /t\("correct"\)/);
+    assert.doesNotMatch(assessmentScreen, /correctAnswer/);
+    assert.doesNotMatch(assessmentScreen, /bg-emerald-600/);
+    assert.doesNotMatch(assessmentScreen, /bg-red-600/);
     assert.match(assessmentResult, /t\("rangeHeadline"/);
   });
 
@@ -82,8 +128,8 @@ describe("phase one support routes", () => {
     assert.doesNotMatch(review, /getReviewableDifficultWords/);
     assert.match(review, /runtimeStatus === "loading"/);
     assert.match(review, /runtimeStatus === "error"/);
-    assert.match(review, /review\.loadErrorDescription/);
-    assert.match(review, /review\.partialWarning/);
+    assert.match(review, /rt\("loadErrorDescription"\)/);
+    assert.match(review, /rt\("partialWarning"/);
     assert.match(review, /visibilitychange/);
     assert.match(review, /window\.addEventListener\("focus"/);
   });
@@ -129,7 +175,7 @@ describe("phase one support routes", () => {
     assert.match(game, /canAccessLevel\(activeProfile, \{/);
     assert.match(game, /game\.contentBlockedTitle/);
     assert.match(review, /partitionReviewWordsByAccess/);
-    assert.match(review, /review\.restrictedSkipped/);
+    assert.match(review, /rt\("restrictedSkipped"/);
     assert.match(books, /canAccessBook/);
     assert.match(units, /canAccessBook/);
     assert.match(levels, /canAccessLevel/);
@@ -238,8 +284,8 @@ describe("phase one support routes", () => {
     assert.match(resetControl, /settings\.parentControls/);
     assert.match(resetControl, /settings\.erase/);
     assert.match(resetControl, /settings\.keep/);
-    assert.match(reviewPage, /review\.remaining/);
-    assert.match(reviewPage, /review\.spelling/);
+    assert.match(reviewPage, /rt\("remaining"\)/);
+    assert.match(reviewPage, /rt\("spelling"\)/);
   });
 
   test("requires a named, focus-safe confirmation before deleting a profile", () => {

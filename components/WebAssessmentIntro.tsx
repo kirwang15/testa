@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   loadAssessmentBank,
   loadAssessmentState,
+  reconcileAssessmentState,
   saveAssessmentState,
   startAssessment,
   type AssessmentAnchor,
@@ -42,12 +43,12 @@ export function WebAssessmentIntro() {
     loadAssessmentBank(controller.signal)
       .then((loaded) => {
         const stored = loadAssessmentState(profile.id);
-        const compatible = stored.active?.bankVersion === loaded.bankVersion ? stored.active : undefined;
-        if (stored.active && !compatible) {
-          saveAssessmentState(profile.id, { history: stored.history });
+        const reconciled = reconcileAssessmentState(stored, loaded.bankVersion);
+        if (stored.active && !reconciled.active) {
+          saveAssessmentState(profile.id, reconciled);
         }
         setBank(loaded);
-        setActive(compatible);
+        setActive(reconciled.active);
         setStatus("ready");
       })
       .catch(() => setStatus("error"));

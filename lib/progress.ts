@@ -379,7 +379,7 @@ function synchronizeProgressDerivedState(progress: GameProgress): GameProgress {
   const location = getCurrentLocation(currentLevel?.id ?? recommendedLevel?.id);
   const trustedWords = Object.fromEntries(
     Object.entries(progress.words).filter(([wordId]) =>
-      /^(?:nce-1997-b[1-4]-|legacy:nce-[1-4]-u\d+-)/.test(wordId)
+      /^(?:nce-1997-b[1-4]-|ielts-nawl-v1-|kaoyan-core-v1-|legacy:nce-[1-4]-u\d+-)/.test(wordId)
     )
   );
   const studyStats = synchronizeLearningStatistics(progress.studyStats, trustedWords);

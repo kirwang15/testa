@@ -4,6 +4,7 @@ import type {
   LearningPreferences,
   PlayerProfile
 } from "@/types/game";
+import { advanceTutorial, createFreshTutorialProgress } from "./tutorial-progress";
 
 export type OnboardingSelection = {
   nickname: string;
@@ -16,7 +17,8 @@ export function getRecommendedInterfaceModeForAge(ageBand: AgeBand): InterfaceMo
 }
 
 export function getOnboardingProfilePatch(
-  selection: OnboardingSelection
+  selection: OnboardingSelection,
+  onboardingCompleted = false
 ): Partial<Omit<PlayerProfile, "id" | "createdAt">> {
   const interfaceMode = selection.interfaceMode;
   const preferences: LearningPreferences = {
@@ -29,7 +31,15 @@ export function getOnboardingProfilePatch(
     nickname: selection.nickname.trim(),
     ageBand: selection.ageBand,
     preferences,
-    onboardingCompleted: true
+    onboardingCompleted: true,
+    ...(onboardingCompleted
+      ? {}
+      : {
+          tutorialProgress: advanceTutorial(
+            createFreshTutorialProgress(),
+            "home"
+          )
+        })
   };
 }
 

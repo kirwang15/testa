@@ -54,6 +54,12 @@ import type {
   SubmitWordResult,
   WordLearningProgress
 } from "../types/game";
+import type { TutorialPhase } from "../types/game";
+import {
+  advanceTutorial,
+  createFreshTutorialProgress,
+  setTutorialCollapsed
+} from "../lib/tutorial-progress";
 
 export type CreateProfileInput = {
   nickname: string;
@@ -75,6 +81,12 @@ export type GameStore = ProfiledGameProgress & {
     patch: Partial<Omit<PlayerProfile, "id" | "createdAt">>
   ) => void;
   updatePreferences: (patch: Partial<LearningPreferences>) => void;
+  advanceTutorial: (
+    phase: TutorialPhase,
+    options?: { firstWordDetailSeen?: boolean; levelCompleted?: boolean }
+  ) => void;
+  setTutorialCollapsed: (collapsed: boolean) => void;
+  restartTutorial: () => void;
   getLevelProgress: (levelId: string) => LevelProgress;
   getWordProgress: (wordId: string) => WordLearningProgress;
   normalizeProgress: () => void;
@@ -214,7 +226,11 @@ export const useGameStore = create<GameStore>()(
           },
           accent: input.accent ?? "en-US",
           createdAt: new Date().toISOString(),
-          onboardingCompleted: input.onboardingCompleted === true
+          onboardingCompleted: input.onboardingCompleted === true,
+          tutorialProgress:
+            input.onboardingCompleted === true
+              ? advanceTutorial(createFreshTutorialProgress(), "home")
+              : createFreshTutorialProgress()
         });
         set((state) => addPlayerProfile(profiledState(state), profile));
         return profileId;
@@ -254,6 +270,40 @@ export const useGameStore = create<GameStore>()(
         set((state) =>
           updateActiveLearningPreferences(profiledState(state), patch)
         );
+      },
+      advanceTutorial: (phase, options) => {
+        if (mutationsAreBlocked(get())) return;
+        set((state) => {
+          const profile = getActiveProfile(profiledState(state));
+          return updatePlayerProfile(profiledState(state), profile.id, {
+            tutorialProgress: advanceTutorial(
+              profile.tutorialProgress,
+              phase,
+              options
+            )
+          });
+        });
+      },
+      setTutorialCollapsed: (collapsed) => {
+        if (mutationsAreBlocked(get())) return;
+        set((state) => {
+          const profile = getActiveProfile(profiledState(state));
+          return updatePlayerProfile(profiledState(state), profile.id, {
+            tutorialProgress: setTutorialCollapsed(
+              profile.tutorialProgress,
+              collapsed
+            )
+          });
+        });
+      },
+      restartTutorial: () => {
+        if (mutationsAreBlocked(get())) return;
+        set((state) => {
+          const profile = getActiveProfile(profiledState(state));
+          return updatePlayerProfile(profiledState(state), profile.id, {
+            tutorialProgress: createFreshTutorialProgress()
+          });
+        });
       },
       getLevelProgress: (levelId) => {
         const progress = getActiveGameProgress(profiledState(get()));

@@ -8,6 +8,7 @@ import {
 } from "@/lib/curriculum-presentation";
 import type { ProgressStatus } from "@/lib/curriculum-index";
 import type { CurriculumLevelIndex, LevelProgress } from "@/types/game";
+import { buildLevelHref } from "@/lib/level-navigation";
 
 type LevelCardProps = {
   level: CurriculumLevelIndex;
@@ -15,6 +16,7 @@ type LevelCardProps = {
   status: ProgressStatus;
   isAdvanced?: boolean;
   locked?: boolean;
+  returnTo?: string;
 };
 
 export function LevelCard({
@@ -22,7 +24,8 @@ export function LevelCard({
   progress,
   status,
   isAdvanced = false,
-  locked = false
+  locked = false,
+  returnTo
 }: LevelCardProps) {
   const { t } = useI18n();
   const foundCount = progress.foundWords.length;
@@ -135,7 +138,7 @@ export function LevelCard({
       {content}
     </article>
   ) : (
-    <Link href={`/levels/${level.id}`} className={`focus-ring ${cardClass}`}>
+    <Link href={buildLevelHref(level.id, returnTo)} className={`focus-ring ${cardClass}`}>
       {content}
     </Link>
   );
