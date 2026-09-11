@@ -31,7 +31,6 @@ export function LetterWheel({
   sanitizeText = (text) => text
 }: LetterWheelProps) {
   const { t } = useLevelI18n();
-  const radius = letters.length > 5 ? 61 : 55;
   const selectedCount = selectedIndexes.length;
   const selectedLetters = currentWord.split("");
   const canEdit = !disabled && !isSubmitting && selectedCount > 0;
@@ -39,7 +38,7 @@ export function LetterWheel({
   return (
     <div
       className={[
-        "relative mx-auto w-full max-w-[320px] rounded-2xl transition",
+        "relative mx-auto w-full max-w-[390px] rounded-2xl transition",
         invalid ? "ring-4 ring-red-500/80" : "",
         readOnlyDetail ? "opacity-55 saturate-50" : ""
       ].join(" ")}
@@ -70,14 +69,14 @@ export function LetterWheel({
         </div>
       ) : null}
 
-      <div className="game-wheel-shell relative mx-auto h-[184px] w-[184px] max-w-full sm:h-[212px] sm:w-[212px]">
+      <div className="game-wheel-shell relative mx-auto h-[244px] w-[244px] max-w-full sm:h-[300px] sm:w-[300px] lg:h-[360px] lg:w-[360px]">
         <div className="game-wheel-core">
           <span>{disabled ? sanitizeText(t("common.clear")) : `${selectedCount}/${letters.length}`}</span>
         </div>
         {letters.map((letter, index) => {
           const angle = (Math.PI * 2 * index) / letters.length - Math.PI / 2;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
+          const x = 50 + Math.cos(angle) * 41;
+          const y = 50 + Math.sin(angle) * 41;
           const selected = selectedIndexes.includes(index);
           const selectionOrder = selected ? selectedIndexes.indexOf(index) + 1 : 0;
 
@@ -88,7 +87,7 @@ export function LetterWheel({
               onClick={() => onChoose(index)}
               disabled={disabled || selected}
               className={[
-                "game-letter-button focus-ring absolute left-1/2 top-1/2 grid h-11 w-11 place-items-center text-xl font-black transition disabled:cursor-not-allowed disabled:opacity-75 sm:h-12 sm:w-12 sm:text-2xl",
+                "game-letter-button focus-ring absolute grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center text-xl font-black transition disabled:cursor-not-allowed disabled:opacity-75 sm:h-12 sm:w-12 sm:text-2xl lg:h-14 lg:w-14 lg:text-[1.65rem]",
                 selected
                   ? invalid
                     ? "z-10 scale-105 bg-red-700 text-white ring-4 ring-red-300/40"
@@ -96,7 +95,8 @@ export function LetterWheel({
                   : "text-[#210d06] hover:brightness-110"
               ].join(" ")}
               style={{
-                transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
+                left: `${x}%`,
+                top: `${y}%`
               }}
             >
               <span>{letter}</span>

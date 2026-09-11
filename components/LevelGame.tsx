@@ -7,7 +7,8 @@ import {
   Lightbulb,
   ShieldAlert,
   Sparkles,
-  Trophy
+  Trophy,
+  Volume2
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -26,7 +27,7 @@ import {
   isCellVisible,
   scoreLevelAttempt
 } from "@/lib/game";
-import { getHintAction } from "@/lib/hint-stage";
+import { getLetterHintAction } from "@/lib/hint-stage";
 import {
   getAllLevels,
   getLevelById,
@@ -268,9 +269,6 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
   const toggleFavorite = useGameStore((state) => state.toggleFavorite);
   const updatePreferences = useGameStore((state) => state.updatePreferences);
   const useHint = useGameStore((state) => state.useHint);
-  const confirmPronunciationHint = useGameStore(
-    (state) => state.confirmPronunciationHint
-  );
   const advanceTutorial = useGameStore((state) => state.advanceTutorial);
   const setTutorialCollapsed = useGameStore((state) => state.setTutorialCollapsed);
   const tutorial = activeProfile.tutorialProgress;
@@ -348,10 +346,6 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
     ? draftView.selectedIndexes
     : [];
   const currentWord = sessionIsCurrent ? draftView.displayWord : "";
-  const hintStage = {
-    wordId: activeClue?.id ?? "",
-    interactions: activeClue ? progress.hintStages[activeClue.id] ?? 0 : 0
-  };
   const hintFirstCell = activeClue
     ? buildGrid(level)[getCellKey(activeClue.start.row, activeClue.start.col)]
     : undefined;
@@ -359,7 +353,7 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
     ? isCellVisible(hintFirstCell, progress)
     : false;
   const hintAction = activeClue
-    ? getHintAction(hintStage, activeClue.id, firstPositionVisible)
+    ? getLetterHintAction(firstPositionVisible)
     : undefined;
   const currentHintTargetIdRef = useRef<string | undefined>(undefined);
   currentLevelIdRef.current = `${activeProfileId}:${level.id}`;
@@ -707,7 +701,68 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
     tutorial.phase
   ]);
 
-  const revealHint = () => {
+  const playPronunciation = () => {
+    if (
+      progress.completed ||
+      inspectedWordId !== undefined ||
+      requiresTutorialDetail ||
+      !sessionIsCurrent ||
+      !activeClue
+    ) {
+      return;
+    }
+
+    const vocabulary = activeClue.vocabularyWordId
+      ? getRuntimeVocabularyWordById(activeClue.vocabularyWordId)
+      : undefined;
+    speechRequestTokenRef.current += 1;
+    const request = {
+      token: speechRequestTokenRef.current,
+      scopeId: `${activeProfileId}:${level.id}`,
+      itemId: activeClue.id
+    };
+    let settled = false;
+    const requestIsCurrent = () =>
+      isSpeechRequestCurrent(
+        request,
+        speechRequestTokenRef.current,
+        currentLevelIdRef.current,
+        currentHintTargetIdRef.current,
+        mountedRef.current
+      );
+    const showPlaybackFeedback = (title: string, description: string) => {
+      if (settled || !requestIsCurrent()) return;
+      settled = true;
+      showFeedback("neutral", title, description);
+    };
+    const showFallback = () => {
+      if (settled || !requestIsCurrent()) return;
+      if (vocabulary?.phonetic) {
+        showPlaybackFeedback(
+          t("game.pronunciationFallback"),
+          `${vocabulary.phonetic}. ${t("game.pronunciationNext")}`
+        );
+        return;
+      }
+      settled = true;
+      showFeedback(
+        "duplicate",
+        t("game.pronunciationUnavailable"),
+        t("game.noClueCharged")
+      );
+    };
+
+    speakEnglishWord(activeClue.word, undefined, {
+      onStarted: () =>
+        showPlaybackFeedback(
+          t("game.pronunciationPlayed"),
+          t("game.pronunciationNext")
+        ),
+      onFailed: showFallback
+    });
+  };
+
+  const revealLetterHint = () => {
     if (
       progress.completed ||
       inspectedWordId !== undefined ||
@@ -723,70 +778,6 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
     lockHintBriefly();
     if (!activeClue || !hintAction) {
       showFeedback("duplicate", t("game.noClue"), t("game.boardClear"));
-      return;
-    }
-
-    if (hintAction === "pronunciation") {
-      const vocabulary = activeClue.vocabularyWordId
-        ? getRuntimeVocabularyWordById(activeClue.vocabularyWordId)
-        : undefined;
-      speechRequestTokenRef.current += 1;
-      const request = {
-        token: speechRequestTokenRef.current,
-        scopeId: `${activeProfileId}:${level.id}`,
-        itemId: activeClue.id
-      };
-      let settled = false;
-      const requestIsCurrent = () =>
-        isSpeechRequestCurrent(
-          request,
-          speechRequestTokenRef.current,
-          currentLevelIdRef.current,
-          currentHintTargetIdRef.current,
-          mountedRef.current
-        );
-      const commitHint = (title: string, description: string) => {
-        const actionContext = actionSessionRef.current;
-        if (settled || !requestIsCurrent() || !actionContext) {
-          return;
-        }
-        settled = true;
-        const pronunciation = confirmPronunciationHint(
-          actionContext,
-          request.itemId
-        );
-        if (pronunciation.status !== "applied") {
-          return;
-        }
-        setAttemptProgress(pronunciation.attemptProgress);
-        showFeedback("hint", title, description);
-      };
-      const showFallback = () => {
-        if (settled || !requestIsCurrent()) {
-          return;
-        }
-        if (vocabulary?.phonetic) {
-          commitHint(
-            t("game.pronunciationFallback"),
-            `${vocabulary.phonetic}. ${t("game.pronunciationNext")}`
-          );
-          return;
-        }
-        settled = true;
-        showFeedback(
-          "duplicate",
-          t("game.pronunciationUnavailable"),
-          t("game.noClueCharged")
-        );
-      };
-      speakEnglishWord(activeClue.word, undefined, {
-        onStarted: () =>
-          commitHint(
-            t("game.pronunciationPlayed"),
-            t("game.pronunciationNext")
-          ),
-        onFailed: showFallback
-      });
       return;
     }
 
@@ -978,34 +969,33 @@ function ResolvedLevelGame({ level, returnTo }: ResolvedLevelGameProps) {
               />
             </div>
 
-            <div className="grid w-full max-w-[760px] items-center gap-3 md:grid-cols-[92px_minmax(0,1fr)_92px]">
-              <div className="order-2 flex justify-center gap-3 md:order-1 md:flex-col md:items-center">
+            <div className="grid w-full max-w-[900px] items-center gap-4 md:grid-cols-[132px_minmax(320px,1fr)_96px] lg:gap-6">
+              <div className="order-2 flex justify-center gap-3 md:order-1 md:flex-col md:items-stretch">
                 <button
                   type="button"
-                  onClick={revealHint}
+                  onClick={playPronunciation}
+                  disabled={progress.completed || !sessionIsCurrent || inspectedWordId !== undefined || requiresTutorialDetail}
+                  aria-disabled={progress.completed || !sessionIsCurrent || inspectedWordId !== undefined || requiresTutorialDetail}
+                  className="game-orb-button focus-ring disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label={safeText(t("game.playPronunciation"))}
+                >
+                  <Volume2 className="h-6 w-6" aria-hidden="true" />
+                  <span>{safeText(t("game.listen"))}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={revealLetterHint}
                   disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting || inspectedWordId !== undefined || requiresTutorialDetail}
                   aria-disabled={progress.completed || isReadOnly || !sessionIsCurrent || isHinting || inspectedWordId !== undefined || requiresTutorialDetail}
                   className="game-orb-button focus-ring disabled:cursor-not-allowed disabled:opacity-45"
                   aria-label={safeText(
-                    hintAction === "pronunciation"
-                      ? t("game.playPronunciation")
-                      : hintAction === "first-letter"
-                        ? t("game.revealFirst")
-                        : t("game.revealPosition")
+                    hintAction === "first-letter"
+                      ? t("game.revealFirst")
+                      : t("game.revealPosition")
                   )}
                 >
                   <Lightbulb className="h-6 w-6" aria-hidden="true" />
-                  <span>
-                    {isHinting
-                      ? "..."
-                      : safeText(
-                          hintAction === "pronunciation"
-                            ? t("game.listen")
-                            : hintAction === "first-letter"
-                              ? t("game.letter")
-                              : t("game.meanings")
-                        )}
-                  </span>
+                  <span>{isHinting ? "..." : safeText(t("game.letterHint"))}</span>
                 </button>
               </div>
 

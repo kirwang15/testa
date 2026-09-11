@@ -92,7 +92,7 @@ class AppStrings {
       'guide.requiredMap':
           'Learn stages, current and locked levels, stars and progress.',
       'guide.requiredGame':
-          'Use clues, the crossing board, letters, delete, clear, audio and hints. Filled words check themselves.',
+          'Use clues, the crossing board, letters, delete and clear. Replay audio whenever you like; letter hints reveal help separately. Filled words check themselves.',
       'guide.requiredComplete':
           'Open a solved word’s details and finish every word in the level.',
       'guide.beginJourney': 'Start the guided level',
@@ -107,7 +107,7 @@ class AppStrings {
       'guide.mapModules':
           'Stage tabs group the course. The amber outline marks your current level; locks mean unavailable; stars show past performance; completed totals appear above. Open the guided current level now.',
       'guide.gameModules':
-          'Top: back, level location and coins. Clue chips show across/down and length. The clue card includes language and source. The board shows crossings. Letter buttons fill the active word; Delete removes one letter and Clear resets it. Listen plays pronunciation, Hint reveals help, and progress shows words completed. A full word is checked automatically.',
+          'Top: back, level location and coins. Clue chips show across/down and length. The clue card includes language and source. The board shows crossings. Letter buttons fill the active word; Delete removes one letter and Clear resets it. Listen can replay pronunciation any time; Letter hint reveals a letter separately. Progress shows words completed. A full word is checked automatically.',
       'guide.gameAutoCheck':
           'The word is full and is being checked automatically. If it is wrong, the letters stay red so you can edit them.',
       'guide.gameOpenDetail':
@@ -260,7 +260,7 @@ class AppStrings {
       'game.clueEnglish': 'English clue',
       'game.clueChinese': '中文提示',
       'game.listen': 'Listen',
-      'game.hint': 'Hint',
+      'game.hint': 'Letter hint',
       'game.clear': 'Clear',
       'game.delete': 'Delete',
       'game.incomplete': 'Fill every open square first.',
@@ -369,7 +369,7 @@ class AppStrings {
       'guide.requiredBody': '新手指引会陪你实际完成一关。可以随时暂退，下次会从原步骤继续。',
       'guide.requiredHome': '了解词汇量测试、三套课程、进度、复习、词汇册、语言、学习摘要和设置。',
       'guide.requiredMap': '了解阶段、当前关、锁定状态、星级和进度。',
-      'guide.requiredGame': '使用提示、交叉棋盘、字母、删除、清空、发音和提示；填满后自动检查。',
+      'guide.requiredGame': '使用提示、交叉棋盘、字母、删除和清空；发音可无限重复播放，字母提示单独揭示帮助；填满后自动检查。',
       'guide.requiredComplete': '打开已完成单词详情，并完成本关全部单词。',
       'guide.beginJourney': '开始新手第一关',
       'guide.later': '稍后从首页继续',
@@ -382,7 +382,7 @@ class AppStrings {
       'guide.mapModules':
           '阶段标签用于切换词汇册阶段；琥珀色描边是当前关；锁形表示暂不可进入；星星记录最佳表现；顶部数字显示整体进度。现在点击新手当前关。',
       'guide.gameModules':
-          '顶部是返回、关卡位置和金币；提示条显示横向/纵向与字母数；提示卡可切换语言并显示来源；棋盘展示单词交叉；字母区用于填写；“删除”退一格，“清空”重填；“听发音”和“提示”提供帮助；进度显示已完成词数。单词填满会自动检查。',
+          '顶部是返回、关卡位置和金币；提示条显示横向/纵向与字母数；提示卡可切换语言并显示来源；棋盘展示单词交叉；字母区用于填写；“删除”退一格，“清空”重填；“听发音”可无限重复播放，“字母提示”另行揭示字母；进度显示已完成词数。单词填满会自动检查。',
       'guide.gameAutoCheck': '单词已填满，正在自动检查。若拼错，字母会保留并标红，修改后会再次自动检查。',
       'guide.gameOpenDetail': '第一个单词完成了。现在暂停输入：请点击绿色提示条，查看音标、释义、来源、例句、发音和收藏。',
       'guide.gameFinishLevel': '点击“继续填写”，再完成其余单词。拼错会保留红色字母供修改，填满后自动检查。',
@@ -397,7 +397,7 @@ class AppStrings {
           '阶段标签切换词汇册阶段；琥珀色代表当前关，锁形代表不可用，绿色代表已完成，星星显示最好成绩，数字显示进度。',
       'guide.referenceGameTitle': '关卡操作',
       'guide.referenceGameBody':
-          '返回键回到实际进入页面；顶部显示位置和金币；阅读横纵提示和来源，在交叉棋盘上点字母填写；可删除、清空、听发音或用提示；单词填满后自动检查。',
+          '返回键回到实际进入页面；顶部显示位置和金币；阅读横纵提示和来源，在交叉棋盘上点字母填写；可删除、清空，无限重复听发音，或单独使用字母提示；单词填满后自动检查。',
       'guide.referenceDetailTitle': '已完成单词详情',
       'guide.referenceDetailBody':
           '完成后的提示条会变绿。点击可查看拼写、音标、词性、CEFR、双语释义、来源、例句、发音和收藏；详情模式不会提交答案或使用提示。',
@@ -516,7 +516,7 @@ class AppStrings {
       'game.clueEnglish': '英文提示',
       'game.clueChinese': '中文提示',
       'game.listen': '听发音',
-      'game.hint': '提示',
+      'game.hint': '字母提示',
       'game.clear': '清空',
       'game.delete': '删除',
       'game.incomplete': '请先填满当前单词的所有空格。',

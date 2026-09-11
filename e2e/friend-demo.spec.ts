@@ -88,6 +88,50 @@ for (const ageBand of ageBands) {
   });
 }
 
+test("desktop letter wheel is spacious and pronunciation never consumes a letter hint", async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) < 1000, "desktop layout only");
+  await finishGuidedOnboarding(page);
+  await enterGuidedFirstLevel(page);
+
+  const shell = page.locator(".game-wheel-shell");
+  await expect(shell).toBeVisible();
+  const shellBox = await shell.boundingBox();
+  expect(shellBox?.width).toBeGreaterThanOrEqual(300);
+
+  const boxes = await page.locator("button.game-letter-button").evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+    })
+  );
+  const overlaps: Array<{ left: number; right: number; overlapWidth: number; overlapHeight: number }> = [];
+  for (let left = 0; left < boxes.length; left += 1) {
+    for (let right = left + 1; right < boxes.length; right += 1) {
+      const a = boxes[left];
+      const b = boxes[right];
+      const overlapWidth = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const overlapHeight = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (overlapWidth > 1 && overlapHeight > 1) {
+        overlaps.push({ left, right, overlapWidth, overlapHeight });
+      }
+    }
+  }
+  expect(overlaps).toEqual([]);
+
+  await expect(page.locator(".game-grid-tile-hinted")).toHaveCount(0);
+  const listen = page.getByRole("button", { name: "播放发音提示" });
+  await expect(listen).toBeEnabled();
+  await listen.click();
+  await listen.click();
+  await expect(listen).toBeEnabled();
+  await expect(page.locator(".game-grid-tile-hinted")).toHaveCount(0);
+
+  const letterHint = page.getByRole("button", { name: /揭示首字母/ });
+  await expect(letterHint).toBeEnabled();
+  await letterHint.click();
+  await expect(page.locator(".game-grid-tile-hinted")).toHaveCount(1);
+});
+
 test("mobile tutorial home remains scrollable without clipping and controls stay touch safe", async ({ page }) => {
   await finishGuidedOnboarding(page);
   const measurements = await page.evaluate(() => ({

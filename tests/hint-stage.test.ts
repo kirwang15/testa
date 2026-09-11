@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import {
-  advanceHintStage,
-  getHintAction,
-  type HintStage
-} from "../lib/hint-stage";
+import { getLetterHintAction } from "../lib/hint-stage";
 import { speakEnglishWord } from "../lib/speech";
 
-describe("staged hints", () => {
-  test("progresses from pronunciation to first letter to later positions per clue", () => {
-    let stage: HintStage = { wordId: "cat", interactions: 0 };
-
-    assert.equal(getHintAction(stage, "cat"), "pronunciation");
-    stage = advanceHintStage(stage, "cat");
-    assert.equal(getHintAction(stage, "cat"), "first-letter");
-    stage = advanceHintStage(stage, "cat");
-    assert.equal(getHintAction(stage, "cat"), "position");
-    assert.equal(getHintAction(stage, "car"), "pronunciation");
+describe("separate pronunciation and letter hints", () => {
+  test("starts with a first-letter clue and advances only after that cell is visible", () => {
+    assert.equal(getLetterHintAction(false), "first-letter");
+    assert.equal(getLetterHintAction(true), "position");
   });
 
   test("uses the injected speech runtime and degrades safely when unavailable", () => {
@@ -44,10 +34,18 @@ describe("staged hints", () => {
     assert.equal(accepted, false);
   });
 
-  test("describes the next position when a crossing already shows the first cell", () => {
-    const stage: HintStage = { wordId: "cat", interactions: 1 };
+  test("allows pronunciation to be played repeatedly without a staged transition", () => {
+    const spoken: string[] = [];
+    const runtime = {
+      createUtterance: (text: string) => ({ text, lang: "" }),
+      cancel: () => undefined,
+      speak: (utterance: { text: string }) => spoken.push(utterance.text)
+    };
 
-    assert.equal(getHintAction(stage, "cat", true), "position");
+    assert.equal(speakEnglishWord("cat", runtime), true);
+    assert.equal(speakEnglishWord("cat", runtime), true);
+    assert.deepEqual(spoken, ["cat", "cat"]);
+    assert.equal(getLetterHintAction(false), "first-letter");
   });
 
   test("waits for speech start and reports an asynchronous rejection", () => {

@@ -203,7 +203,10 @@ describe("phase one support routes", () => {
     assert.match(game, /order-1[^"]*lg:order-2/);
     assert.match(game, /lg:grid-cols-\[minmax\(0,1\.15fr\)_minmax\(320px,0\.85fr\)\]/);
     assert.match(slots, /overflow-x-auto/);
-    assert.match(readFileSync("components/LetterWheel.tsx", "utf8"), /h-\[184px\] w-\[184px\]/);
+    const wheel = readFileSync("components/LetterWheel.tsx", "utf8");
+    assert.match(wheel, /lg:h-\[360px\] lg:w-\[360px\]/);
+    assert.match(wheel, /Math\.cos\(angle\) \* 41/);
+    assert.doesNotMatch(wheel, /const radius = letters\.length/);
     assert.doesNotMatch(game, /game-corner/);
     assert.doesNotMatch(css, /\.game-corner/);
     assert.doesNotMatch(game, /game-table-surface/);
@@ -357,7 +360,9 @@ describe("phase one support routes", () => {
     const levelGame = readFileSync("components/LevelGame.tsx", "utf8");
     const reviewPage = readFileSync("app/review/page.tsx", "utf8");
 
-    assert.match(levelGame, /confirmPronunciationHint/);
+    assert.match(levelGame, /const playPronunciation = \(\) =>/);
+    assert.match(levelGame, /const revealLetterHint = \(\) =>/);
+    assert.doesNotMatch(levelGame, /confirmPronunciationHint/);
     assert.match(levelGame, /isSpeechRequestCurrent/);
     assert.match(reviewPage, /onStarted/);
     assert.match(reviewPage, /onFailed/);

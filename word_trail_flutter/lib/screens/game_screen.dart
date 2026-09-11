@@ -55,7 +55,6 @@ class _GameScreenState extends State<GameScreen> {
   late final Future<LevelBundle> _bundleFuture = _load();
   final Map<GridPoint, String> _draft = {};
   final Set<String> _solved = {};
-  final Map<String, int> _hintStage = {};
   final Set<String> _mistakeWords = {};
   String? _activeWordId;
   String? _inspectedWordId;
@@ -237,10 +236,8 @@ class _GameScreenState extends State<GameScreen> {
                   ? UiLanguage.chinese
                   : UiLanguage.english,
             ),
-            onListen: () => _listen(displayWord, bundle, t, recordHint: false),
-            onHint: inputEnabled
-                ? () => _useHint(level, answerWord, bundle, t)
-                : null,
+            onListen: () => _listen(displayWord, bundle, t),
+            onHint: inputEnabled ? () => _useHint(level, answerWord, t) : null,
             onContinueAnswer: detailMode
                 ? () => setState(() => _inspectedWordId = null)
                 : null,
@@ -515,12 +512,8 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> _listen(
     TargetWord word,
     LevelBundle bundle,
-    AppStrings t, {
-    required bool recordHint,
-  }) async {
-    if (recordHint) {
-      widget.controller.recordHint(levelId: bundle.level.id, wordId: word.id);
-    }
+    AppStrings t,
+  ) async {
     final didSpeak = await _speech.speak(word.word);
     if (!mounted || didSpeak) return;
     final phonetic = bundle.vocabulary[word.id]?.phonetic ?? '';
@@ -536,23 +529,9 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> _useHint(
     CourseLevel level,
     TargetWord word,
-    LevelBundle bundle,
     AppStrings t,
   ) async {
-    final stage = _hintStage[word.id] ?? 0;
-    _hintStage[word.id] = stage + 1;
     widget.controller.recordHint(levelId: level.id, wordId: word.id);
-    if (stage == 0) {
-      setState(
-        () => _feedback = GameFeedback(
-          GameFeedbackType.hint,
-          t('game.hintAudio'),
-          '',
-        ),
-      );
-      await _speech.speak(word.word);
-      return;
-    }
     final candidates = word.cells
         .where(
           (point) =>
@@ -566,7 +545,7 @@ class _GameScreenState extends State<GameScreen> {
         _draft[point] = word.word[index];
         _feedback = GameFeedback(
           GameFeedbackType.hint,
-          stage == 1 ? t('game.hintFirst') : t('game.hintPosition'),
+          index == 0 ? t('game.hintFirst') : t('game.hintPosition'),
           '',
         );
       });
@@ -582,7 +561,6 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _solved.clear();
       _draft.clear();
-      _hintStage.clear();
       _mistakeWords.clear();
       _activeWordId = level.words.first.id;
       _inspectedWordId = null;

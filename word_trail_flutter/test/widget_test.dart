@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:word_trail_app/app_controller.dart';
@@ -741,6 +742,63 @@ void main() {
   });
 
   testWidgets(
+    'pronunciation replays without consuming the separate letter hint',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      var speechCalls = 0;
+      const speechChannel = MethodChannel('word_trail/speech');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(speechChannel, (call) async {
+            if (call.method == 'speak') speechCalls += 1;
+            return true;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(speechChannel, null),
+      );
+
+      final controller = widgetController();
+      await initializeController(tester, controller);
+      controller.createProfile(
+        nickname: 'Audio learner',
+        ageBand: AgeBand.allAges,
+        uiLanguage: UiLanguage.chinese,
+      );
+      await tester.runAsync(
+        () => controller.repository.loadLevel('nce-1997-b1-level-001'),
+      );
+      configurePhone(tester);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameScreen(
+            controller: controller,
+            levelId: 'nce-1997-b1-level-001',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      final listen = find.text('听发音');
+      await tester.ensureVisible(listen);
+      await tester.tap(listen);
+      await tester.pumpAndSettle();
+      await tester.tap(listen);
+      await tester.pumpAndSettle();
+      expect(speechCalls, 2);
+      expect(controller.progressFor('nce-1997-b1-level-001').hintCount, 0);
+
+      final letterHint = find.text('字母提示');
+      await tester.ensureVisible(letterHint);
+      await tester.tap(letterHint);
+      await tester.pumpAndSettle();
+      expect(find.text('首字母已放入棋盘。'), findsOneWidget);
+      expect(controller.progressFor('nce-1997-b1-level-001').hintCount, 1);
+    },
+  );
+
+  testWidgets(
     'solved-word details are read-only and remain switchable after completion',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -796,7 +854,7 @@ void main() {
       final hintButton = tester.widget<OutlinedButton>(
         find
             .ancestor(
-              of: find.text('提示'),
+              of: find.text('字母提示'),
               matching: find.byType(OutlinedButton),
             )
             .first,
